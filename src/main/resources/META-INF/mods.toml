@@ -1,0 +1,33 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+[[mods]]
+modId="minenorthentreprises"
+version="1.0.0"
+displayName="MineNorth Entreprises"
+authors="MineNorth RP"
+description='''Entreprises MineNorth RP : création, employés, grades, salaires et administration OP.'''
+[[dependencies.minenorthentreprises]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.minenorthentreprises]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.21)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.minenorthentreprises]]
+modId="minenorth_eurobank"
+mandatory=true
+versionRange="[1.0.0,2)"
+ordering="AFTER"
+side="BOTH"
+[[dependencies.minenorthentreprises]]
+modId="minenorthapi"
+mandatory=true
+versionRange="[1.0.0,2)"
+ordering="AFTER"
+side="BOTH"
