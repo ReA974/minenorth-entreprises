@@ -39,6 +39,8 @@ public final class EntrepriseConfig {
     private static Path file() { return FMLPaths.CONFIGDIR.get().resolve("minenorth_entreprises.json"); }
 
     public static boolean load() {
+        // Config côté serveur uniquement : le client ne crée ni ne lit aucun fichier.
+        if (net.minecraftforge.fml.loading.FMLEnvironment.dist != net.minecraftforge.api.distmarker.Dist.DEDICATED_SERVER) return true;
         Path f = file();
         boolean ok = true;
         try {
