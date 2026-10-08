@@ -1,6 +1,7 @@
 package fr.minenorth.entreprises;
 
 import fr.minenorth.api.BankService;
+import fr.minenorth.api.BankTx;
 import fr.minenorth.api.MineNorth;
 import fr.minenorth.api.PayResult;
 import com.mojang.authlib.GameProfile;
@@ -429,13 +430,18 @@ public final class EntrepriseService {
         payroll(e.getServer());
     }
 
-    /** Verse les salaires aux employés connectés, prélevés sur le compte bancaire du patron. */
+    /**
+     * Verse les salaires aux employés connectés, prélevés sur le compte bancaire de l'entreprise
+     * ({@code c.accountId}). Si au moins un salaire échoue faute de fonds, une seule alerte de
+     * redressement judiciaire est envoyée par société et par cycle aux membres qui gèrent le compte
+     * ({@link CompanyAccounts#canBank}). Aucune sanction automatique.
+     */
     private static void payroll(MinecraftServer s) {
         EntrepriseData d = EntrepriseData.get(s);
         BankService bank = MineNorth.bank();
         for (Company c : d.all()) {
             if (c.status != EntrepriseData.ACTIVE) continue;
-            long paid = 0; int unpaid = 0;
+            long paid = 0; int unpaid = 0, insufficient = 0;
             for (Member m : c.members.values()) {
                 ServerPlayer emp = s.getPlayerList().getPlayer(m.id);
                 Grade g = c.gradeOf(m.id);
@@ -444,16 +450,28 @@ public final class EntrepriseService {
                     emp.sendSystemMessage(Component.literal("§cSalaire non versé : vous n'avez pas de compte bancaire."));
                     continue;
                 }
-                if (!bank.hasAccount(s, c.owner) || !bank.transfer(s, c.owner, m.id, g.salary).ok()) {
+                PayResult r = bank.transfer(s, c.accountId, m.id, g.salary, BankTx.SALARY, "Salaire " + g.name, "Entreprise");
+                if (!r.ok()) {
                     unpaid++;
-                    emp.sendSystemMessage(Component.literal("§cSalaire non versé : le compte du patron de « " + c.name + " » est insuffisant."));
+                    if (r == PayResult.INSUFFICIENT_FUNDS) {
+                        insufficient++;
+                        emp.sendSystemMessage(Component.literal("§cSalaire non versé : le compte de l'entreprise « " + c.name + " » est insuffisant."));
+                    } else {
+                        emp.sendSystemMessage(Component.literal("§cSalaire non versé : " + r.message()));
+                    }
                     continue;
                 }
                 paid += g.salary;
                 emp.sendSystemMessage(Component.literal("§aSalaire reçu de « " + c.name + " » : " + money(g.salary) + "."));
             }
-            if (paid > 0) tell(s, c.owner, "§e« " + c.name + " » : " + money(paid) + " de salaires prélevés sur votre compte.");
-            if (unpaid > 0) tell(s, c.owner, "§c« " + c.name + " » : " + unpaid + " salaire(s) non versé(s), solde insuffisant.");
+            if (paid > 0) tell(s, c.owner, "§e« " + c.name + " » : " + money(paid) + " de salaires prélevés sur le compte entreprise.");
+            if (unpaid > 0) tell(s, c.owner, "§c« " + c.name + " » : " + unpaid + " salaire(s) non versé(s).");
+            if (insufficient > 0) {
+                String alert = "§cLes comptes de « " + c.name + " » sont à 0 ou insuffisants : l'entreprise risque le redressement judiciaire.";
+                for (Member m : c.members.values()) {
+                    if (CompanyAccounts.canBank(c, m.id)) tell(s, m.id, alert);
+                }
+            }
         }
     }
 
