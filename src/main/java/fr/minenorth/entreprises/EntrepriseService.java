@@ -252,6 +252,21 @@ public final class EntrepriseService {
                 giveTablet(s, me);
                 return R.ok("Tablette d'entreprise remise.");
             }
+            case ModNetwork.DEPOSIT:
+            case ModNetwork.WITHDRAW: {
+                if (admin) return null;
+                long cents = euros(k.a());
+                if (cents <= 0) return R.err("Montant invalide.");
+                boolean dep = k.action() == ModNetwork.DEPOSIT;
+                String err = dep ? CompanyAccounts.deposit(p, c, cents) : CompanyAccounts.withdraw(p, c, cents);
+                if (err != null) return R.err(err);
+                return R.ok((dep ? "Dépôt de " : "Virement de ") + money(cents) + " effectué.");
+            }
+            case ModNetwork.GET_BUSINESS_CARD: {
+                if (admin) return null;
+                if (!CompanyAccounts.giveCard(p, c)) return R.err("Impossible de remettre la carte entreprise.");
+                return R.ok("Carte entreprise remise.");
+            }
             case ModNetwork.LEAVE: {
                 if (admin || me.equals(c.owner)) return R.err("Le patron ne peut pas démissionner : il doit dissoudre l'entreprise.");
                 c.members.remove(me); d.setDirty();

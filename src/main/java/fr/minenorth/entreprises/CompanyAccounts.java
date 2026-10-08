@@ -11,6 +11,7 @@ import fr.minenorth.entreprises.data.EntrepriseData.Company;
 import fr.minenorth.entreprises.data.EntrepriseData.Grade;
 import fr.minenorth.entreprises.data.EntrepriseData.Member;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -76,6 +77,38 @@ public final class CompanyAccounts {
         LOGGER.warn("Entreprise « {} » (id {}) : fermeture du compte {} impossible, solde résiduel {} centimes.",
                 c.name, c.id, c.accountId, bank.balance(s, c.accountId));
         return false;
+    }
+
+    private static final long MAX_TRANSFER = 1_000_000_000L;
+
+    private static String check(Company c, ServerPlayer p, long cents) {
+        if (!canBank(c, p.getUUID())) return "Vous n'avez pas accès au compte de l'entreprise.";
+        if (c.status != EntrepriseData.ACTIVE) return "L'entreprise n'est pas encore validée.";
+        if (cents <= 0 || cents > MAX_TRANSFER) return "Montant invalide.";
+        return null;
+    }
+
+    /** Dépôt du compte du joueur vers le compte de l'entreprise. Retourne un message d'erreur, ou null. */
+    public static String deposit(ServerPlayer p, Company c, long cents) {
+        String err = check(c, p, cents);
+        if (err != null) return err;
+        String name = MineNorth.displayName(p);
+        PayResult r = MineNorth.bank().transfer(p.server, p.getUUID(), c.accountId, cents, BankTx.DEPOSIT, "Dépôt", name);
+        return r.ok() ? null : r.message();
+    }
+
+    /** Virement du compte de l'entreprise vers le compte du joueur lui-même (même pour un gérant). */
+    public static String withdraw(ServerPlayer p, Company c, long cents) {
+        String err = check(c, p, cents);
+        if (err != null) return err;
+        String name = MineNorth.displayName(p);
+        PayResult r = MineNorth.bank().transfer(p.server, c.accountId, p.getUUID(), cents, BankTx.WITHDRAW, "Virement vers " + name, name);
+        return r.ok() ? null : r.message();
+    }
+
+    public static boolean giveCard(ServerPlayer p, Company c) {
+        if (!canBank(c, p.getUUID()) || c.status != EntrepriseData.ACTIVE) return false;
+        return MineNorth.bank().giveBusinessCard(p, c.accountId, c.name);
     }
 
     /** Migration et resynchronisation : chaque société a son compte ouvert et ses signataires à jour. */

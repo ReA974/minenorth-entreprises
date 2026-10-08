@@ -33,6 +33,12 @@ public final class EntrepriseApi {
         return c == null ? "" : c.name;
     }
 
+    /** Identifiant du compte bancaire de l'entreprise, ou null si elle n'existe pas. */
+    public static java.util.UUID accountOf(MinecraftServer s, int id) {
+        Company c = EntrepriseData.get(s).get(id);
+        return c == null ? null : c.accountId;
+    }
+
     /** Noms des grades, du plus haut (index 0) au plus bas. */
     public static List<String> gradeNames(MinecraftServer s, int id) {
         List<String> out = new ArrayList<>();

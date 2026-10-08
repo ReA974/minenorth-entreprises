@@ -22,7 +22,8 @@ public final class ModNetwork {
     // Actions envoyées par l'interface.
     public static final int CREATE = 1, DISSOLVE = 2, INVITE = 3, FIRE = 4, SET_GRADE = 5, GRADE_SAVE = 6, GRADE_DELETE = 7,
             ACCEPT = 8, REFUSE_INVITE = 9, LEAVE = 10, VALIDATE = 11, REFUSE = 12, EDIT = 13, CLOSE = 14,
-            REQUEST_DISSOLVE = 15, REJECT_DISSOLVE = 16, GET_TABLET = 17;
+            REQUEST_DISSOLVE = 15, REJECT_DISSOLVE = 16, GET_TABLET = 17,
+            DEPOSIT = 18, WITHDRAW = 19, GET_BUSINESS_CARD = 20;
 
     private static final String PROTOCOL = "1";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
