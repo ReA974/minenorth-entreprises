@@ -24,7 +24,8 @@ public final class ModNetwork {
             ACCEPT = 8, REFUSE_INVITE = 9, LEAVE = 10, VALIDATE = 11, REFUSE = 12, EDIT = 13, CLOSE = 14,
             REQUEST_DISSOLVE = 15, REJECT_DISSOLVE = 16, GET_TABLET = 17,
             DEPOSIT = 18, WITHDRAW = 19, GET_BUSINESS_CARD = 20,
-            TRANSFER_PLAYER = 21;   // a = montant (€), b = nom RP du destinataire, c = motif (≤ 64)
+            TRANSFER_PLAYER = 21,   // a = montant (€), b = nom RP du destinataire, c = motif (≤ 64)
+            VIEW_TX = 22;           // OP seulement : companyId = entreprise dont l'historique est affiché
 
     private static final String PROTOCOL = "3";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
@@ -60,7 +61,8 @@ public final class ModNetwork {
     public static final int TX_SENT = 50;
 
     /**
-     * balance et txs ne sont remplis que si bankAccess (décidé par le serveur) ; txs jamais en mode admin.
+     * Mode joueur : balance et txs ne sont remplis que si bankAccess (décidé par le serveur).
+     * Mode admin (OP) : bankAccess = false, balance rempli pour toutes les entreprises, txs seulement pour l'entreprise ciblée (VIEW_TX).
      */
     public record CompanyView(int id, String name, String activity, UUID owner, String ownerName, int status,
                               List<GradeView> grades, List<MemberView> members, boolean dissolveRequested,

@@ -24,7 +24,7 @@ import java.util.UUID;
  * Mode OP : liste, création, validation, modification, dissolution, employés et grades.
  */
 public class EntrepriseScreen extends Screen {
-    private static final int W = 400, H = 244, ROWS = 6, ADMIN_ROWS = 7, TX_ROWS = 4;
+    private static final int W = 400, H = 244, ROWS = 6, ADMIN_ROWS = 7, TX_ROWS = 4, ADMIN_TX_ROWS = 7;
     /** Identifiants stables des onglets (indépendants de leur position à l'écran). */
     private static final int T_INFOS = 0, T_MEMBERS = 1, T_GRADES = 2, T_TX = 3;
     private static final DateTimeFormatter TX_DATE = DateTimeFormatter.ofPattern("dd/MM HH:mm").withZone(ZoneId.systemDefault());
@@ -200,7 +200,7 @@ public class EntrepriseScreen extends Screen {
 
     /**
      * Vue d'une entreprise : onglets INFOS / EMPLOYÉS / GRADES / TRANSACTIONS. admin = droits complets (OP).
-     * L'onglet TRANSACTIONS n'apparaît que si le serveur a accordé {@code bankAccess} (jamais en mode admin).
+     * L'onglet TRANSACTIONS n'apparaît que si le serveur a accordé {@code bankAccess} ; en mode admin il est en lecture seule.
      */
     private void buildCompany(CompanyView c, boolean admin) {
         UUID me = me();
@@ -208,7 +208,7 @@ public class EntrepriseScreen extends Screen {
         GradeView mine = gradeOf(c, me);
         boolean manage = owner || (mine != null && mine.manage());
         boolean bank = !admin && c.bankAccess();
-        if ((tab == T_GRADES && !owner) || (tab == T_TX && !bank)) { tab = T_INFOS; page = 0; }
+        if ((tab == T_GRADES && !owner) || (tab == T_TX && !bank && !admin)) { tab = T_INFOS; page = 0; }
 
         int x = left + 14, w = W - 28;
         List<String> names = new ArrayList<>();
@@ -216,24 +216,40 @@ public class EntrepriseScreen extends Screen {
         names.add("INFOS"); ids.add(T_INFOS);
         names.add("EMPLOYÉS"); ids.add(T_MEMBERS);
         if (owner) { names.add("GRADES"); ids.add(T_GRADES); }
-        if (bank) { names.add("TRANSACTIONS"); ids.add(T_TX); }
+        // Mode OP : onglet en lecture seule ; le clic demande l'historique de cette entreprise au serveur (VIEW_TX).
+        if (bank || admin) { names.add("TRANSACTIONS"); ids.add(T_TX); }
         for (int i = 0; i < names.size(); i++) {
             final int t = ids.get(i);
-            btn(x + i * 94, top + 46, 90, 18, names.get(i), tab == t ? MineNorthStyle.CYAN : MineNorthStyle.DARK,
-                    () -> go(() -> { tab = t; page = 0; selGrade = -1; confirm = false; }));
+            btn(x + i * 94, top + 46, 90, 18, names.get(i), tab == t ? MineNorthStyle.CYAN : MineNorthStyle.DARK, () -> {
+                if (admin && t == T_TX) send(ModNetwork.VIEW_TX, c.id(), "", "", "", 0);
+                go(() -> { tab = t; page = 0; selGrade = -1; confirm = false; });
+            });
         }
         int y0 = top + 72;
         if (tab == T_INFOS) buildInfos(c, admin, owner, mine, x, y0, w);
         else if (tab == T_MEMBERS) buildMembers(c, admin, owner, manage, x, y0, w);
         else if (tab == T_GRADES) buildGrades(c, x, y0, w);
+        else if (admin) buildAdminTransactions(c, x, y0, w);
         else buildTransactions(c, x, y0, w);
+    }
+
+    private void balanceLine(CompanyView c, int x, int y) {
+        label("SOLDE DU COMPTE :", x, y, MineNorthStyle.BLUE);
+        label(MineNorthStyle.euros(c.balance()), x + font.width("SOLDE DU COMPTE :") + 6, y,
+                c.balance() > 0 ? MineNorthStyle.OK : MineNorthStyle.ALERT);
+    }
+
+    /** Mode OP : solde et historique en lecture seule (aucune action bancaire depuis /entrepriseadmin). */
+    private void buildAdminTransactions(CompanyView c, int x, int y0, int w) {
+        balanceLine(c, x, y0 + 3);
+        label("Lecture seule • " + ModNetwork.TX_SENT + " dernières opérations", x + w - font.width("Lecture seule • "
+                + ModNetwork.TX_SENT + " dernières opérations"), y0 + 3, MineNorthStyle.MUTED);
+        txList(c.txs(), x, y0 + 20, w, ADMIN_TX_ROWS);
     }
 
     /** Onglet TRANSACTIONS : solde, dépôt / virement / carte, historique paginé (le serveur valide tout). */
     private void buildTransactions(CompanyView c, int x, int y0, int w) {
-        label("SOLDE DU COMPTE :", x, y0 + 3, MineNorthStyle.BLUE);
-        label(MineNorthStyle.euros(c.balance()), x + font.width("SOLDE DU COMPTE :") + 6, y0 + 3,
-                c.balance() > 0 ? MineNorthStyle.OK : MineNorthStyle.ALERT);
+        balanceLine(c, x, y0 + 3);
         btn(x + w - 170, y0 - 2, 170, 16, "Obtenir ma carte entreprise", MineNorthStyle.CYAN,
                 () -> send(ModNetwork.GET_BUSINESS_CARD, c.id(), "", "", "", 0));
 
@@ -253,21 +269,24 @@ public class EntrepriseScreen extends Screen {
         btn(x + 262, yp - 1, w - 262, 20, "Virer à un joueur", MineNorthStyle.GREEN,
                 () -> send(ModNetwork.TRANSFER_PLAYER, c.id(), bAmount.getValue(), bRecipient.getValue(), bMotif.getValue(), 0));
 
+        txList(c.txs(), x, y0 + 68, w, TX_ROWS);
+    }
+
+    /** Historique paginé (tablette et mode OP) : en-têtes à {@code yh}, {@code rows} lignes par page. */
+    private void txList(List<TxView> list, int x, int yh, int w, int rows) {
         // Colonnes : date | libellé | montant (aligné à droite) | solde après (aligné à droite) | auteur.
         int cDate = x + 6, cLabel = x + 66, rAmount = x + 234, rAfter = x + 302, cActor = x + 308;
-        int yh = y0 + 68;
         label("DATE", cDate, yh, MineNorthStyle.BLUE);
         label("LIBELLÉ", cLabel, yh, MineNorthStyle.BLUE);
         right("MONTANT", rAmount, yh, MineNorthStyle.BLUE);
         right("SOLDE", rAfter, yh, MineNorthStyle.BLUE);
         label("PAR", cActor, yh, MineNorthStyle.BLUE);
 
-        List<TxView> list = c.txs();
-        int pages = Math.max(1, (list.size() + TX_ROWS - 1) / TX_ROWS);
+        int pages = Math.max(1, (list.size() + rows - 1) / rows);
         page = Math.max(0, Math.min(pages - 1, page));
         if (list.isEmpty()) label("Aucune transaction pour le moment.", x, yh + 16, MineNorthStyle.MUTED);
-        for (int i = 0; i < TX_ROWS; i++) {
-            int idx = page * TX_ROWS + i;
+        for (int i = 0; i < rows; i++) {
+            int idx = page * rows + i;
             if (idx >= list.size()) break;
             TxView t = list.get(idx);
             int y = yh + 11 + i * 14;
@@ -301,7 +320,10 @@ public class EntrepriseScreen extends Screen {
             bOwner = box(x, y0 + 47, half, "Pseudo du patron", c.ownerName());
             label("STATUT", x + half + 8, y0 + 36, MineNorthStyle.BLUE);
             label(status, x + half + 8, y0 + 52, c.status() == 0 || c.dissolveRequested() ? MineNorthStyle.WARN : MineNorthStyle.OK);
-            label(c.members().size() + " employé(s) • masse salariale " + MineNorthStyle.euros(payroll) + " par paie", x, y0 + 72, MineNorthStyle.MUTED);
+            String solde = "Solde : " + MineNorthStyle.euros(c.balance());
+            right(solde, x + w, y0 + 72, c.balance() > 0 ? MineNorthStyle.OK : MineNorthStyle.ALERT);
+            label(c.members().size() + " employé(s) • masse salariale " + MineNorthStyle.euros(payroll) + " par paie", x, y0 + 72,
+                    MineNorthStyle.MUTED, w - font.width(solde) - 8);
             btn(x, y0 + 86, w, 20, "ENREGISTRER LES MODIFICATIONS", MineNorthStyle.CYAN,
                     () -> send(ModNetwork.EDIT, c.id(), bName.getValue(), bActivity.getValue(), bOwner.getValue(), 0));
             int y = y0 + 110;

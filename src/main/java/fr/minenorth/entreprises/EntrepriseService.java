@@ -26,6 +26,7 @@ import net.minecraftforge.fml.common.Mod;
 import org.slf4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +42,8 @@ public final class EntrepriseService {
 
     /** Joueurs dont le menu a été ouvert par le PNJ (/entreprise <joueur>). Sans cela, aucune action n'est acceptée. */
     private static final Set<UUID> OPEN = new HashSet<>();
+    /** Mode OP : entreprise dont l'historique est affiché (VIEW_TX). Transitoire, vidé à CLOSE et à la déconnexion. */
+    private static final Map<UUID, Integer> ADMIN_FOCUS = new HashMap<>();
     private static long lastPay = 0;
 
     private record R(String msg, boolean ok) {
@@ -50,7 +53,7 @@ public final class EntrepriseService {
 
     // ------------------------------------------------------------------ ouverture
     public static void openFor(ServerPlayer p) { OPEN.add(p.getUUID()); send(p, false, "", true); }
-    public static void openAdmin(ServerPlayer p) { send(p, true, "", true); }
+    public static void openAdmin(ServerPlayer p) { ADMIN_FOCUS.remove(p.getUUID()); send(p, true, "", true); }
 
     /** Clic droit avec la tablette : réservée au PDG d'une entreprise active. */
     public static void openTablet(ServerPlayer p) {
@@ -79,10 +82,11 @@ public final class EntrepriseService {
     }
 
     /**
-     * Vue envoyée à {@code viewer}. Le solde et l'historique ne sont joints que si le serveur lui accorde l'accès bancaire
-     * ({@link CompanyAccounts#canBank}) ; en mode admin, jamais (bankAccess = false, aucune transaction).
+     * Vue envoyée à {@code viewer}. Mode joueur : le solde et l'historique ne sont joints que si le serveur lui accorde
+     * l'accès bancaire ({@link CompanyAccounts#canBank}). Mode admin (appelant déjà vérifié OP) : bankAccess = false
+     * (aucune action bancaire), solde toujours joint, historique seulement si {@code focused} (entreprise ciblée par VIEW_TX).
      */
-    private static ModNetwork.CompanyView view(MinecraftServer s, Company c, UUID viewer, boolean admin) {
+    private static ModNetwork.CompanyView view(MinecraftServer s, Company c, UUID viewer, boolean admin, boolean focused) {
         List<ModNetwork.GradeView> grades = new ArrayList<>();
         for (Grade g : c.grades) grades.add(new ModNetwork.GradeView(g.name, g.salary, g.manage));
         List<ModNetwork.MemberView> members = new ArrayList<>();
@@ -92,13 +96,14 @@ public final class EntrepriseService {
             members.add(new ModNetwork.MemberView(m.id, MineNorth.displayName(s, m.id), Math.max(0, Math.min(c.grades.size() - 1, m.grade)), on != null));
         }
         boolean bankAccess = !admin && CompanyAccounts.canBank(c, viewer);
+        boolean withHistory = bankAccess || (admin && focused);
         long balance = 0;
         List<ModNetwork.TxView> txs = new ArrayList<>();
-        if (bankAccess) {
+        if (bankAccess || admin) {
             BankService bank = MineNorth.bank();
             try {
                 balance = bank.balance(s, c.accountId);
-                for (BankTx t : bank.history(s, c.accountId, ModNetwork.TX_SENT)) {
+                if (withHistory) for (BankTx t : bank.history(s, c.accountId, ModNetwork.TX_SENT)) {
                     if (txs.size() >= ModNetwork.TX_SENT) break;
                     txs.add(new ModNetwork.TxView(t.time(), t.category(), t.cents(), t.balanceAfter(), t.label(), t.actor()));
                 }
@@ -118,9 +123,10 @@ public final class EntrepriseService {
         List<ModNetwork.InviteView> invites = new ArrayList<>();
         Company self = d.companyOf(p.getUUID());
         if (admin) {
-            for (Company c : d.all()) list.add(view(p.server, c, p.getUUID(), true));
+            Integer focus = ADMIN_FOCUS.get(p.getUUID());
+            for (Company c : d.all()) list.add(view(p.server, c, p.getUUID(), true, focus != null && focus == c.id));
         } else if (self != null) {
-            list.add(view(p.server, self, p.getUUID(), false));
+            list.add(view(p.server, self, p.getUUID(), false, false));
         } else {
             for (Map.Entry<Integer, String> e : d.invitesOf(p.getUUID()).entrySet()) {
                 Company c = d.get(e.getKey());
@@ -190,7 +196,7 @@ public final class EntrepriseService {
 
     // ------------------------------------------------------------------ actions
     public static void handle(ServerPlayer p, ActionPacket k) {
-        if (k.action() == ModNetwork.CLOSE) { OPEN.remove(p.getUUID()); return; }
+        if (k.action() == ModNetwork.CLOSE) { OPEN.remove(p.getUUID()); ADMIN_FOCUS.remove(p.getUUID()); return; }
         boolean admin = k.admin();
         if (admin ? !p.hasPermissions(2) : !OPEN.contains(p.getUUID())) return;
         EntrepriseData d = EntrepriseData.get(p.server);
@@ -298,6 +304,12 @@ public final class EntrepriseService {
                 if (err != null) return R.err(err);
                 UUID dest = CompanyAccounts.findAccountByRpName(s, clean(k.b()));
                 return R.ok("Virement de " + money(cents) + " à " + (dest == null ? clean(k.b()) : MineNorth.displayName(s, dest)) + " effectué.");
+            }
+            case ModNetwork.VIEW_TX: {
+                // OP seulement (handle a vérifié p.hasPermissions(2)) ; c existe (vérifié plus haut). Lecture seule.
+                if (!admin) return null;
+                ADMIN_FOCUS.put(me, c.id);
+                return R.ok("");
             }
             case ModNetwork.GET_BUSINESS_CARD: {
                 if (admin) return null;
@@ -537,5 +549,6 @@ public final class EntrepriseService {
     @SubscribeEvent
     public static void logout(PlayerEvent.PlayerLoggedOutEvent e) {
         OPEN.remove(e.getEntity().getUUID());
+        ADMIN_FOCUS.remove(e.getEntity().getUUID());
     }
 }
