@@ -25,7 +25,7 @@ public final class ModNetwork {
             REQUEST_DISSOLVE = 15, REJECT_DISSOLVE = 16, GET_TABLET = 17,
             DEPOSIT = 18, WITHDRAW = 19, GET_BUSINESS_CARD = 20;
 
-    private static final String PROTOCOL = "1";
+    private static final String PROTOCOL = "2";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MineNorthEntreprises.MOD_ID, "network"), () -> PROTOCOL, PROTOCOL::equals, PROTOCOL::equals);
     private static int id = 0;
@@ -45,17 +45,38 @@ public final class ModNetwork {
         static void encode(FriendlyByteBuf b, MemberView m) { b.writeUUID(m.id); b.writeUtf(m.name); b.writeVarInt(m.grade); b.writeBoolean(m.online); }
         static MemberView decode(FriendlyByteBuf b) { return new MemberView(b.readUUID(), b.readUtf(), b.readVarInt(), b.readBoolean()); }
     }
+    /** Une ligne de l'historique du compte entreprise (copie de {@code fr.minenorth.api.BankTx}). */
+    public record TxView(long time, String category, long cents, long balanceAfter, String label, String actor) {
+        static void encode(FriendlyByteBuf b, TxView t) {
+            b.writeLong(t.time); b.writeUtf(nz(t.category)); b.writeLong(t.cents); b.writeLong(t.balanceAfter);
+            b.writeUtf(nz(t.label)); b.writeUtf(nz(t.actor));
+        }
+        static TxView decode(FriendlyByteBuf b) {
+            return new TxView(b.readLong(), b.readUtf(), b.readLong(), b.readLong(), b.readUtf(), b.readUtf());
+        }
+    }
+    /** Nombre maximum de transactions envoyées au client (les plus récentes). */
+    public static final int TX_SENT = 50;
+
+    /**
+     * balance et txs ne sont remplis que si bankAccess (décidé par le serveur) ; txs jamais en mode admin.
+     */
     public record CompanyView(int id, String name, String activity, UUID owner, String ownerName, int status,
-                              List<GradeView> grades, List<MemberView> members, boolean dissolveRequested) {
+                              List<GradeView> grades, List<MemberView> members, boolean dissolveRequested,
+                              long balance, boolean bankAccess, List<TxView> txs) {
         static void encode(FriendlyByteBuf b, CompanyView c) {
             b.writeVarInt(c.id); b.writeUtf(c.name); b.writeUtf(c.activity); b.writeUUID(c.owner); b.writeUtf(c.ownerName); b.writeVarInt(c.status);
             b.writeCollection(c.grades, GradeView::encode); b.writeCollection(c.members, MemberView::encode); b.writeBoolean(c.dissolveRequested);
+            b.writeLong(c.balance); b.writeBoolean(c.bankAccess); b.writeCollection(c.txs, TxView::encode);
         }
         static CompanyView decode(FriendlyByteBuf b) {
             return new CompanyView(b.readVarInt(), b.readUtf(), b.readUtf(), b.readUUID(), b.readUtf(), b.readVarInt(),
-                    b.readList(GradeView::decode), b.readList(MemberView::decode), b.readBoolean());
+                    b.readList(GradeView::decode), b.readList(MemberView::decode), b.readBoolean(),
+                    b.readLong(), b.readBoolean(), b.readList(TxView::decode));
         }
     }
+
+    private static String nz(String v) { return v == null ? "" : v; }
     public record InviteView(int companyId, String company, String by) {
         static void encode(FriendlyByteBuf b, InviteView i) { b.writeVarInt(i.companyId); b.writeUtf(i.company); b.writeUtf(i.by); }
         static InviteView decode(FriendlyByteBuf b) { return new InviteView(b.readVarInt(), b.readUtf(), b.readUtf()); }

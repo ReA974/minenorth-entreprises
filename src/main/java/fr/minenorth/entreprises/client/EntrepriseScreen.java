@@ -4,12 +4,16 @@ import fr.minenorth.entreprises.network.ModNetwork;
 import fr.minenorth.entreprises.network.ModNetwork.CompanyView;
 import fr.minenorth.entreprises.network.ModNetwork.GradeView;
 import fr.minenorth.entreprises.network.ModNetwork.MemberView;
+import fr.minenorth.entreprises.network.ModNetwork.TxView;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -20,7 +24,10 @@ import java.util.UUID;
  * Mode OP : liste, création, validation, modification, dissolution, employés et grades.
  */
 public class EntrepriseScreen extends Screen {
-    private static final int W = 400, H = 244, ROWS = 6, ADMIN_ROWS = 7;
+    private static final int W = 400, H = 244, ROWS = 6, ADMIN_ROWS = 7, TX_ROWS = 5;
+    /** Identifiants stables des onglets (indépendants de leur position à l'écran). */
+    private static final int T_INFOS = 0, T_MEMBERS = 1, T_GRADES = 2, T_TX = 3;
+    private static final DateTimeFormatter TX_DATE = DateTimeFormatter.ofPattern("dd/MM HH:mm").withZone(ZoneId.systemDefault());
 
     private ModNetwork.StatePacket st;
     private int left, top;
@@ -33,8 +40,8 @@ public class EntrepriseScreen extends Screen {
     private String message = "";
     private boolean messageOk = true;
 
-    private EditBox bName, bActivity, bOwner, bPlayer, bGradeName, bSalary;
-    private String kName = "", kActivity = "", kOwner = "", kPlayer = "", kGradeName = "", kSalary = "";
+    private EditBox bName, bActivity, bOwner, bPlayer, bGradeName, bSalary, bAmount;
+    private String kName = "", kActivity = "", kOwner = "", kPlayer = "", kGradeName = "", kSalary = "", kAmount = "";
 
     private record Label(String text, int x, int y, int color) {}
     private record Card(int x, int y, int w, int h, int accent) {}
@@ -60,6 +67,7 @@ public class EntrepriseScreen extends Screen {
         if (s.ok() && !s.message().isEmpty()) {
             if (creating) { creating = false; kName = kActivity = kOwner = ""; }
             kPlayer = "";
+            kAmount = "";
             selGrade = -1;
         }
         rebuild();
@@ -79,6 +87,7 @@ public class EntrepriseScreen extends Screen {
         if (bPlayer != null) kPlayer = bPlayer.getValue();
         if (bGradeName != null) kGradeName = bGradeName.getValue();
         if (bSalary != null) kSalary = bSalary.getValue();
+        if (bAmount != null) kAmount = bAmount.getValue();
     }
     private void rebuild() { clearWidgets(); init(); }
     /** Change de vue en conservant ce qui a été saisi. */
@@ -127,7 +136,7 @@ public class EntrepriseScreen extends Screen {
         top = Math.max(4, (height - H) / 2);
         labels.clear();
         cards.clear();
-        bName = bActivity = bOwner = bPlayer = bGradeName = bSalary = null;
+        bName = bActivity = bOwner = bPlayer = bGradeName = bSalary = bAmount = null;
 
         boolean sub = st.admin() && (sel >= 0 || creating);
         btn(left + W - 100, top + 10, 86, 16, sub ? "Retour" : "Fermer", MineNorthButton.GHOST, this::back);
@@ -185,26 +194,84 @@ public class EntrepriseScreen extends Screen {
         });
     }
 
-    /** Vue d'une entreprise : onglets INFOS / EMPLOYÉS / GRADES. admin = droits complets (OP). */
+    /**
+     * Vue d'une entreprise : onglets INFOS / EMPLOYÉS / GRADES / TRANSACTIONS. admin = droits complets (OP).
+     * L'onglet TRANSACTIONS n'apparaît que si le serveur a accordé {@code bankAccess} (jamais en mode admin).
+     */
     private void buildCompany(CompanyView c, boolean admin) {
         UUID me = me();
         boolean owner = admin || c.owner().equals(me);
         GradeView mine = gradeOf(c, me);
         boolean manage = owner || (mine != null && mine.manage());
-        if (tab == 2 && !owner) tab = 0;
+        boolean bank = !admin && c.bankAccess();
+        if ((tab == T_GRADES && !owner) || (tab == T_TX && !bank)) { tab = T_INFOS; page = 0; }
 
         int x = left + 14, w = W - 28;
-        String[] tabs = owner ? new String[]{"INFOS", "EMPLOYÉS", "GRADES"} : new String[]{"INFOS", "EMPLOYÉS"};
-        for (int i = 0; i < tabs.length; i++) {
-            final int t = i;
-            btn(x + i * 94, top + 46, 90, 18, tabs[i], tab == i ? MineNorthStyle.CYAN : MineNorthStyle.DARK,
+        List<String> names = new ArrayList<>();
+        List<Integer> ids = new ArrayList<>();
+        names.add("INFOS"); ids.add(T_INFOS);
+        names.add("EMPLOYÉS"); ids.add(T_MEMBERS);
+        if (owner) { names.add("GRADES"); ids.add(T_GRADES); }
+        if (bank) { names.add("TRANSACTIONS"); ids.add(T_TX); }
+        for (int i = 0; i < names.size(); i++) {
+            final int t = ids.get(i);
+            btn(x + i * 94, top + 46, 90, 18, names.get(i), tab == t ? MineNorthStyle.CYAN : MineNorthStyle.DARK,
                     () -> go(() -> { tab = t; page = 0; selGrade = -1; confirm = false; }));
         }
         int y0 = top + 72;
-        if (tab == 0) buildInfos(c, admin, owner, mine, x, y0, w);
-        else if (tab == 1) buildMembers(c, admin, owner, manage, x, y0, w);
-        else buildGrades(c, x, y0, w);
+        if (tab == T_INFOS) buildInfos(c, admin, owner, mine, x, y0, w);
+        else if (tab == T_MEMBERS) buildMembers(c, admin, owner, manage, x, y0, w);
+        else if (tab == T_GRADES) buildGrades(c, x, y0, w);
+        else buildTransactions(c, x, y0, w);
     }
+
+    /** Onglet TRANSACTIONS : solde, dépôt / virement / carte, historique paginé (le serveur valide tout). */
+    private void buildTransactions(CompanyView c, int x, int y0, int w) {
+        label("SOLDE DU COMPTE :", x, y0 + 3, MineNorthStyle.BLUE);
+        label(MineNorthStyle.euros(c.balance()), x + font.width("SOLDE DU COMPTE :") + 6, y0 + 3,
+                c.balance() > 0 ? MineNorthStyle.OK : MineNorthStyle.ALERT);
+        btn(x + w - 170, y0 - 2, 170, 16, "Obtenir ma carte entreprise", MineNorthStyle.CYAN,
+                () -> send(ModNetwork.GET_BUSINESS_CARD, c.id(), "", "", "", 0));
+
+        int yr = y0 + 18;
+        bAmount = box(x, yr, 100, "Montant €", kAmount);
+        btn(x + 106, yr - 1, 80, 20, "Déposer", MineNorthStyle.GREEN,
+                () -> send(ModNetwork.DEPOSIT, c.id(), bAmount.getValue(), "", "", 0));
+        btn(x + 192, yr - 1, w - 192, 20, "Virer vers mon compte", MineNorthStyle.DARK,
+                () -> send(ModNetwork.WITHDRAW, c.id(), bAmount.getValue(), "", "", 0));
+
+        // Colonnes : date | libellé | montant (aligné à droite) | solde après (aligné à droite) | auteur.
+        int cDate = x + 6, cLabel = x + 66, rAmount = x + 234, rAfter = x + 302, cActor = x + 308;
+        int yh = y0 + 44;
+        label("DATE", cDate, yh, MineNorthStyle.BLUE);
+        label("LIBELLÉ", cLabel, yh, MineNorthStyle.BLUE);
+        right("MONTANT", rAmount, yh, MineNorthStyle.BLUE);
+        right("SOLDE", rAfter, yh, MineNorthStyle.BLUE);
+        label("PAR", cActor, yh, MineNorthStyle.BLUE);
+
+        List<TxView> list = c.txs();
+        int pages = Math.max(1, (list.size() + TX_ROWS - 1) / TX_ROWS);
+        page = Math.max(0, Math.min(pages - 1, page));
+        if (list.isEmpty()) label("Aucune transaction pour le moment.", x, yh + 16, MineNorthStyle.MUTED);
+        for (int i = 0; i < TX_ROWS; i++) {
+            int idx = page * TX_ROWS + i;
+            if (idx >= list.size()) break;
+            TxView t = list.get(idx);
+            int y = yh + 11 + i * 14;
+            boolean plus = t.cents() >= 0;
+            int color = plus ? MineNorthStyle.OK : MineNorthStyle.ALERT;
+            card(x, y, w, 13, color);
+            label(TX_DATE.format(Instant.ofEpochMilli(t.time())), cDate, y + 3, MineNorthStyle.MUTED, cLabel - cDate - 4);
+            label(t.label(), cLabel, y + 3, MineNorthStyle.WHITE, rAmount - 64 - cLabel);
+            right((plus ? "+" : "") + MineNorthStyle.euros(t.cents()), rAmount, y + 3, color);
+            right(MineNorthStyle.euros(t.balanceAfter()), rAfter, y + 3, MineNorthStyle.TEXT);
+            label(t.actor(), cActor, y + 3, MineNorthStyle.MUTED, x + w - 4 - cActor);
+        }
+        pager(pages, x + w, top + H - 36);
+    }
+
+    /** Libellé aligné à droite sur {@code rightX}. */
+    private void right(String text, int rightX, int y, int color) { label(text, rightX - font.width(text), y, color); }
 
     private void buildInfos(CompanyView c, boolean admin, boolean owner, GradeView mine, int x, int y0, int w) {
         int half = (w - 8) / 2;
@@ -247,7 +314,8 @@ public class EntrepriseScreen extends Screen {
         if (owner) kv("Votre rôle :", "Patron", lx, y + 52);
         else kv("Votre grade :", mine == null ? "—" : mine.name() + " • salaire " + MineNorthStyle.euros(mine.salary()), lx, y + 52);
         kv("Masse salariale :", MineNorthStyle.euros(payroll) + " par paie (toutes les " + st.payMinutes() + " min)", lx, y + 65);
-        label("Salaires versés aux employés connectés, prélevés sur le compte du patron.", x, y0 + 102, MineNorthStyle.MUTED, w);
+        if (c.bankAccess()) kv("Solde du compte :", MineNorthStyle.euros(c.balance()), lx, y + 78);
+        label("Salaires versés aux employés connectés, prélevés sur le compte de l'entreprise.", x, y0 + 102, MineNorthStyle.MUTED, w);
         if (owner) {
             // Le PDG ne peut ni renommer ni dissoudre lui-même : il demande la dissolution à un administrateur.
             btn(x, y0 + 118, half, 20, "OBTENIR LA TABLETTE", MineNorthStyle.CYAN, () -> send(ModNetwork.GET_TABLET, c.id(), "", "", "", 0));

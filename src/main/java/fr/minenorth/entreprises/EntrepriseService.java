@@ -73,7 +73,11 @@ public final class EntrepriseService {
         p.sendSystemMessage(Component.literal("§bVous avez reçu votre tablette d'entreprise : clic droit pour gérer votre entreprise."));
     }
 
-    private static ModNetwork.CompanyView view(MinecraftServer s, Company c) {
+    /**
+     * Vue envoyée à {@code viewer}. Le solde et l'historique ne sont joints que si le serveur lui accorde l'accès bancaire
+     * ({@link CompanyAccounts#canBank}) ; en mode admin, jamais (bankAccess = false, aucune transaction).
+     */
+    private static ModNetwork.CompanyView view(MinecraftServer s, Company c, UUID viewer, boolean admin) {
         List<ModNetwork.GradeView> grades = new ArrayList<>();
         for (Grade g : c.grades) grades.add(new ModNetwork.GradeView(g.name, g.salary, g.manage));
         List<ModNetwork.MemberView> members = new ArrayList<>();
@@ -82,7 +86,23 @@ public final class EntrepriseService {
             if (on != null) m.name = on.getGameProfile().getName();   // pseudo gardé comme clé
             members.add(new ModNetwork.MemberView(m.id, MineNorth.displayName(s, m.id), Math.max(0, Math.min(c.grades.size() - 1, m.grade)), on != null));
         }
-        return new ModNetwork.CompanyView(c.id, c.name, c.activity, c.owner, MineNorth.displayName(s, c.owner), c.status, grades, members, c.dissolveRequested);
+        boolean bankAccess = !admin && CompanyAccounts.canBank(c, viewer);
+        long balance = 0;
+        List<ModNetwork.TxView> txs = new ArrayList<>();
+        if (bankAccess) {
+            BankService bank = MineNorth.bank();
+            try {
+                balance = bank.balance(s, c.accountId);
+                for (BankTx t : bank.history(s, c.accountId, ModNetwork.TX_SENT)) {
+                    if (txs.size() >= ModNetwork.TX_SENT) break;
+                    txs.add(new ModNetwork.TxView(t.time(), t.category(), t.cents(), t.balanceAfter(), t.label(), t.actor()));
+                }
+            } catch (RuntimeException e) {
+                balance = 0; txs.clear();   // banque en erreur : l'écran s'ouvre quand même, sans historique
+            }
+        }
+        return new ModNetwork.CompanyView(c.id, c.name, c.activity, c.owner, MineNorth.displayName(s, c.owner), c.status, grades, members,
+                c.dissolveRequested, balance, bankAccess, txs);
     }
 
     private static void send(ServerPlayer p, boolean admin, String msg, boolean ok) {
@@ -92,9 +112,9 @@ public final class EntrepriseService {
         List<ModNetwork.InviteView> invites = new ArrayList<>();
         Company self = d.companyOf(p.getUUID());
         if (admin) {
-            for (Company c : d.all()) list.add(view(p.server, c));
+            for (Company c : d.all()) list.add(view(p.server, c, p.getUUID(), true));
         } else if (self != null) {
-            list.add(view(p.server, self));
+            list.add(view(p.server, self, p.getUUID(), false));
         } else {
             for (Map.Entry<Integer, String> e : d.invitesOf(p.getUUID()).entrySet()) {
                 Company c = d.get(e.getKey());
