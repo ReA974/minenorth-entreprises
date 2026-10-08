@@ -51,6 +51,11 @@ public final class CompanyAccounts {
         MineNorth.bank().setSigners(s, c.accountId, signers);
     }
 
+    /** Listage ATM : seules les entreprises ACTIVE apparaissent dans la liste des comptes entreprise. */
+    public static void syncListing(MinecraftServer s, Company c) {
+        MineNorth.bank().setAccountListed(s, c.accountId, c.status == EntrepriseData.ACTIVE);
+    }
+
     /**
      * Ferme le compte : le solde restant va au patron (virement « Dissolution »), ou au trésor si {@code toTreasury}
      * ou si le patron ne peut pas le recevoir ; puis le compte est fermé.
@@ -124,7 +129,7 @@ public final class CompanyAccounts {
         if (MineNorth.bank() == BankService.NONE) return;
         MinecraftServer s = e.getServer();
         for (Company c : EntrepriseData.get(s).all()) {
-            if (open(s, c)) syncSigners(s, c);
+            if (open(s, c)) { syncSigners(s, c); syncListing(s, c); }
         }
     }
 }

@@ -203,8 +203,8 @@ public final class EntrepriseService {
         }
         // Embauche, licenciement, grade, droit « manage », patron : les signataires suivent toujours.
         Company after = admin ? d.get(k.companyId()) : d.companyOf(p.getUUID());
-        if (before != null && d.get(before.id) == before) CompanyAccounts.syncSigners(p.server, before);
-        if (after != null && after != before && d.get(after.id) == after) CompanyAccounts.syncSigners(p.server, after);
+        if (before != null && d.get(before.id) == before) { CompanyAccounts.syncSigners(p.server, before); CompanyAccounts.syncListing(p.server, before); }
+        if (after != null && after != before && d.get(after.id) == after) { CompanyAccounts.syncSigners(p.server, after); CompanyAccounts.syncListing(p.server, after); }
         if (r != null) send(p, admin, r.msg(), r.ok());
     }
 
@@ -371,6 +371,7 @@ public final class EntrepriseService {
                 if (!admin) return null;
                 if (c.status == EntrepriseData.ACTIVE) return R.err("Cette entreprise est déjà active.");
                 c.status = EntrepriseData.ACTIVE; d.setDirty();
+                CompanyAccounts.syncListing(s, c);
                 tell(s, c.owner, "§aVotre entreprise « " + c.name + " » a été validée !");
                 giveTablet(s, c.owner);
                 return R.ok("Entreprise validée.");
@@ -430,6 +431,7 @@ public final class EntrepriseService {
             return R.err("Impossible d'ouvrir le compte bancaire de l'entreprise.");
         }
         CompanyAccounts.syncSigners(p.server, c);
+        CompanyAccounts.syncListing(p.server, c);
         if (pending) {
             for (ServerPlayer op : p.server.getPlayerList().getPlayers()) {
                 if (op.hasPermissions(2)) op.sendSystemMessage(Component.literal("§e[Entreprises] " + MineNorth.displayName(p)
@@ -455,6 +457,7 @@ public final class EntrepriseService {
             return R.err("Impossible d'ouvrir le compte bancaire de l'entreprise.");
         }
         CompanyAccounts.syncSigners(s, c);
+        CompanyAccounts.syncListing(s, c);
         tell(s, boss.getId(), "§aUn administrateur a créé votre entreprise « " + c.name + " ».");
         giveTablet(s, boss.getId());
         return R.ok("Entreprise « " + c.name + " » créée.");
