@@ -157,6 +157,7 @@ public final class EntrepriseService {
 
     private static void dissolve(MinecraftServer s, EntrepriseData d, Company c, String reason) {
         for (Member m : c.members.values()) tell(s, m.id, "§eL'entreprise « " + c.name + " » " + reason + ".");
+        CompanyAccounts.close(s, c, false);   // solde rendu au patron (ou au trésor), puis compte fermé
         d.remove(c.id);
     }
 
@@ -165,12 +166,18 @@ public final class EntrepriseService {
         if (k.action() == ModNetwork.CLOSE) { OPEN.remove(p.getUUID()); return; }
         boolean admin = k.admin();
         if (admin ? !p.hasPermissions(2) : !OPEN.contains(p.getUUID())) return;
+        EntrepriseData d = EntrepriseData.get(p.server);
+        Company before = admin ? d.get(k.companyId()) : d.companyOf(p.getUUID());
         R r;
         try {
             r = act(p, k, admin);
         } catch (RuntimeException e) {
             r = R.err("Action impossible.");
         }
+        // Embauche, licenciement, grade, droit « manage », patron : les signataires suivent toujours.
+        Company after = admin ? d.get(k.companyId()) : d.companyOf(p.getUUID());
+        if (before != null && d.get(before.id) == before) CompanyAccounts.syncSigners(p.server, before);
+        if (after != null && after != before && d.get(after.id) == after) CompanyAccounts.syncSigners(p.server, after);
         if (r != null) send(p, admin, r.msg(), r.ok());
     }
 
@@ -350,6 +357,7 @@ public final class EntrepriseService {
                     tell(s, c.owner, "§aVous êtes maintenant le patron de « " + name + " ».");
                 }
                 c.ownerName = boss.getName(); c.name = name; c.activity = activity; d.setDirty();
+                CompanyAccounts.rename(s, c);
                 return R.ok("Entreprise modifiée.");
             }
             default: return null;
@@ -365,6 +373,7 @@ public final class EntrepriseService {
         String name = clean(k.a()), activity = clean(k.b());
         String err = validate(d, name, activity, null, false);
         if (err != null) return R.err(err);
+        if (MineNorth.bank() == BankService.NONE) return R.err("Service bancaire indisponible.");
         long fee = cfg.feeCents();
         if (fee > 0) {
             PayResult pay = MineNorth.bank().charge(p, fee, "entreprises:creation");
@@ -373,6 +382,12 @@ public final class EntrepriseService {
         boolean pending = cfg.validation_op;
         Company c = d.create(name, activity, p.getUUID(), p.getGameProfile().getName(),
                 pending ? EntrepriseData.PENDING : EntrepriseData.ACTIVE, fee);
+        if (!CompanyAccounts.open(p.server, c)) {
+            refundFee(p.server, c);
+            d.remove(c.id);
+            return R.err("Impossible d'ouvrir le compte bancaire de l'entreprise.");
+        }
+        CompanyAccounts.syncSigners(p.server, c);
         if (pending) {
             for (ServerPlayer op : p.server.getPlayerList().getPlayers()) {
                 if (op.hasPermissions(2)) op.sendSystemMessage(Component.literal("§e[Entreprises] " + MineNorth.displayName(p)
@@ -391,7 +406,13 @@ public final class EntrepriseService {
         GameProfile boss = resolve(s, k.c(), true);
         if (boss == null) return R.err("Patron introuvable.");
         if (d.companyOf(boss.getId()) != null) return R.err(boss.getName() + " fait déjà partie d'une entreprise.");
+        if (MineNorth.bank() == BankService.NONE) return R.err("Service bancaire indisponible.");
         Company c = d.create(name, activity, boss.getId(), boss.getName(), EntrepriseData.ACTIVE, 0);
+        if (!CompanyAccounts.open(s, c)) {
+            d.remove(c.id);
+            return R.err("Impossible d'ouvrir le compte bancaire de l'entreprise.");
+        }
+        CompanyAccounts.syncSigners(s, c);
         tell(s, boss.getId(), "§aUn administrateur a créé votre entreprise « " + c.name + " ».");
         giveTablet(s, boss.getId());
         return R.ok("Entreprise « " + c.name + " » créée.");

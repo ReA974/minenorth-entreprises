@@ -31,6 +31,8 @@ public class EntrepriseData extends SavedData {
         public int status = PENDING; public long feePaid; public long created;
         /** Le PDG a demandé la dissolution : un OP doit l'accepter ou la refuser. */
         public boolean dissolveRequested;
+        /** Identifiant du compte EuroBank de l'entreprise (jamais le patron). */
+        public UUID accountId;
         /** Du plus haut (index 0) au plus bas. Le patron n'a pas de grade. */
         public final List<Grade> grades = new ArrayList<>();
         public final Map<UUID, Member> members = new LinkedHashMap<>();
@@ -64,6 +66,8 @@ public class EntrepriseData extends SavedData {
             c.ownerName = t.getString("ownerName"); c.status = t.getInt("status");
             c.feePaid = t.getLong("feePaid"); c.created = t.getLong("created");
             c.dissolveRequested = t.getBoolean("dissolveRequested");
+            if (t.hasUUID("accountId")) c.accountId = t.getUUID("accountId");
+            else { c.accountId = UUID.randomUUID(); d.setDirty(); }   // migration : le compte est ouvert au démarrage du serveur
             ListTag gl = t.getList("grades", Tag.TAG_COMPOUND);
             for (int j = 0; j < gl.size(); j++) {
                 CompoundTag g = gl.getCompound(j);
@@ -90,6 +94,7 @@ public class EntrepriseData extends SavedData {
             t.putUUID("owner", c.owner); t.putString("ownerName", c.ownerName); t.putInt("status", c.status);
             t.putLong("feePaid", c.feePaid); t.putLong("created", c.created);
             t.putBoolean("dissolveRequested", c.dissolveRequested);
+            t.putUUID("accountId", c.accountId);
             ListTag gl = new ListTag();
             for (Grade g : c.grades) {
                 CompoundTag gt = new CompoundTag();
@@ -126,6 +131,7 @@ public class EntrepriseData extends SavedData {
     public Company create(String name, String activity, UUID owner, String ownerName, int status, long feePaid) {
         Company c = new Company();
         c.id = nextId++; c.name = name; c.activity = activity; c.owner = owner; c.ownerName = ownerName;
+        c.accountId = UUID.randomUUID();
         c.status = status; c.feePaid = feePaid; c.created = System.currentTimeMillis();
         c.grades.add(new Grade("Co-gérant", 0, true));
         c.grades.add(new Grade("Employé", 0, false));

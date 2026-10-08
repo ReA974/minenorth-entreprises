@@ -26,7 +26,11 @@ public final class EntrepriseWipe {
             if (e.player().equals(c.owner)) owned.add(c.id);
             else if (c.members.remove(e.player()) != null) any = true;
         }
-        for (int id : owned) d.remove(id);
+        for (int id : owned) {
+            EntrepriseData.Company c = d.get(id);
+            if (c != null) CompanyAccounts.close(e.server(), c, true);   // solde au trésor : le patron est effacé
+            d.remove(id);
+        }
         if (any || !owned.isEmpty()) {
             d.setDirty();
             e.cleaned("entreprises");
