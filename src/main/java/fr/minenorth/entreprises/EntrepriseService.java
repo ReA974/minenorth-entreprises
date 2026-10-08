@@ -1,5 +1,6 @@
 package fr.minenorth.entreprises;
 
+import com.mojang.logging.LogUtils;
 import fr.minenorth.api.BankService;
 import fr.minenorth.api.BankTx;
 import fr.minenorth.api.MineNorth;
@@ -22,6 +23,8 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import org.slf4j.Logger;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -32,6 +35,8 @@ import java.util.UUID;
 /** Toute la logique serveur des entreprises : ouverture des menus, actions, paie. */
 @Mod.EventBusSubscriber
 public final class EntrepriseService {
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     private EntrepriseService() {}
 
     /** Joueurs dont le menu a été ouvert par le PNJ (/entreprise <joueur>). Sans cela, aucune action n'est acceptée. */
@@ -98,6 +103,7 @@ public final class EntrepriseService {
                     txs.add(new ModNetwork.TxView(t.time(), t.category(), t.cents(), t.balanceAfter(), t.label(), t.actor()));
                 }
             } catch (RuntimeException e) {
+                LOGGER.warn("Entreprise « {} » : lecture du compte bancaire impossible pour l'écran.", c.name, e);
                 balance = 0; txs.clear();   // banque en erreur : l'écran s'ouvre quand même, sans historique
             }
         }
@@ -491,6 +497,9 @@ public final class EntrepriseService {
                     if (r == PayResult.INSUFFICIENT_FUNDS) {
                         insufficient++;
                         emp.sendSystemMessage(Component.literal("§cSalaire non versé : le compte de l'entreprise « " + c.name + " » est insuffisant."));
+                    } else if (r == PayResult.NO_ACCOUNT) {
+                        // le compte de l'employé a été vérifié plus haut : c'est celui de l'entreprise
+                        emp.sendSystemMessage(Component.literal("§cSalaire non versé : le compte de l'entreprise est introuvable."));
                     } else {
                         emp.sendSystemMessage(Component.literal("§cSalaire non versé : " + r.message()));
                     }
@@ -503,8 +512,9 @@ public final class EntrepriseService {
             if (unpaid > 0) tell(s, c.owner, "§c« " + c.name + " » : " + unpaid + " salaire(s) non versé(s).");
             if (insufficient > 0) {
                 String alert = "§cLes comptes de « " + c.name + " » sont à 0 ou insuffisants : l'entreprise risque le redressement judiciaire.";
+                tell(s, c.owner, alert);
                 for (Member m : c.members.values()) {
-                    if (CompanyAccounts.canBank(c, m.id)) tell(s, m.id, alert);
+                    if (!m.id.equals(c.owner) && CompanyAccounts.canBank(c, m.id)) tell(s, m.id, alert);
                 }
             }
         }

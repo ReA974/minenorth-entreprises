@@ -3,7 +3,7 @@ loaderVersion="[47,)"
 license="MIT"
 [[mods]]
 modId="minenorthentreprises"
-version="1.0.0"
+version="1.1.0"
 displayName="MineNorth Entreprises"
 authors="MineNorth RP"
 description='''Entreprises MineNorth RP : création, employés, grades, salaires et administration OP.'''
@@ -28,6 +28,6 @@ side="BOTH"
 [[dependencies.minenorthentreprises]]
 modId="minenorthapi"
 mandatory=true
-versionRange="[1.0.0,2)"
+versionRange="[1.1.0,2)"
 ordering="AFTER"
 side="BOTH"

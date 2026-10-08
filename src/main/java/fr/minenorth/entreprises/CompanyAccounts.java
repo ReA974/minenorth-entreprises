@@ -58,20 +58,26 @@ public final class CompanyAccounts {
     public static boolean close(MinecraftServer s, Company c, boolean toTreasury) {
         BankService bank = MineNorth.bank();
         if (bank == BankService.NONE) return true;   // aucun compte n'a pu exister
+        // Le solde sort par paliers : transfer et payFromAccount refusent tout montant au-dessus du plafond.
         long balance = bank.balance(s, c.accountId);
-        if (balance > 0) {
+        while (balance > 0) {
+            long chunk = Math.min(balance, MAX_TRANSFER);
             boolean done = false;
             if (!toTreasury && bank.hasAccount(s, c.owner)) {
-                PayResult r = bank.transfer(s, c.accountId, c.owner, balance, BankTx.WITHDRAW, "Dissolution", "Système");
+                PayResult r = bank.transfer(s, c.accountId, c.owner, chunk, BankTx.WITHDRAW, "Dissolution", "Système");
                 done = r.ok();
-                if (!done) LOGGER.warn("Entreprise « {} » (id {}, compte {}) : virement du solde {} au patron refusé ({}), envoi au trésor.",
-                        c.name, c.id, c.accountId, balance, r);
+                if (!done) LOGGER.warn("Entreprise « {} » (id {}, compte {}) : virement de {} au patron refusé ({}), envoi au trésor.",
+                        c.name, c.id, c.accountId, chunk, r);
             }
             if (!done) {
-                PayResult r = bank.payFromAccount(s, c.accountId, balance, toTreasury ? "entreprises:wipe" : "entreprises:dissolution", null);
-                if (!r.ok()) LOGGER.warn("Entreprise « {} » (id {}, compte {}) : envoi du solde {} au trésor refusé ({}).",
-                        c.name, c.id, c.accountId, balance, r);
+                PayResult r = bank.payFromAccount(s, c.accountId, chunk, toTreasury ? "entreprises:wipe" : "entreprises:dissolution", null);
+                done = r.ok();
+                if (!done) LOGGER.warn("Entreprise « {} » (id {}, compte {}) : envoi de {} au trésor refusé ({}), solde résiduel {}.",
+                        c.name, c.id, c.accountId, chunk, r, bank.balance(s, c.accountId));
             }
+            long next = bank.balance(s, c.accountId);
+            if (!done || next >= balance) break;   // plus de progrès : on s'arrête, le solde reste sur le compte
+            balance = next;
         }
         if (bank.closeAccount(s, c.accountId)) return true;
         LOGGER.warn("Entreprise « {} » (id {}) : fermeture du compte {} impossible, solde résiduel {} centimes.",
@@ -103,6 +109,7 @@ public final class CompanyAccounts {
         if (err != null) return err;
         String name = MineNorth.displayName(p);
         PayResult r = MineNorth.bank().transfer(p.server, c.accountId, p.getUUID(), cents, BankTx.WITHDRAW, "Virement vers " + name, name);
+        if (r == PayResult.NO_ACCOUNT && MineNorth.bank().hasAccount(p.server, p.getUUID())) return "Le compte de l'entreprise est introuvable.";
         return r.ok() ? null : r.message();
     }
 
