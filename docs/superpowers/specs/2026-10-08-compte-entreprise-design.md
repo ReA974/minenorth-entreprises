@@ -82,7 +82,7 @@ Ajouts en méthodes `default`, pour ne casser aucun mod déjà compilé. `BankSe
 
 - Banque absente (`BankService.NONE`) : l'entreprise n'est pas créée et l'utilisateur voit « service bancaire indisponible » ; les paies sont sautées avec message.
 - Montant invalide, droits insuffisants, solde insuffisant : message d'erreur dans le `StatePacket`, rien n'est débité.
-- Échec de `closeAccount` : la dissolution est annulée avec message à l'OP.
+- Échec de `closeAccount` : la dissolution (ou le wipe) n'est pas bloquée ; un avertissement est journalisé avec le nom, l'id, l'`accountId` et le solde restant, que l'admin pourra récupérer sur le compte.
 
 ## 10. Tests
 
