@@ -12,8 +12,14 @@ import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 
+import io.netty.handler.codec.DecoderException;
+import net.minecraftforge.network.NetworkDirection;
+
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 public final class ModNetwork {
@@ -35,10 +41,32 @@ public final class ModNetwork {
     private static int id = 0;
 
     public static void register() {
-        CHANNEL.registerMessage(id++, StatePacket.class, StatePacket::encode, StatePacket::decode, StatePacket::handle);
-        CHANNEL.registerMessage(id++, ActionPacket.class, ActionPacket::encode, ActionPacket::decode, ActionPacket::handle);
-        CHANNEL.registerMessage(id++, InvoicePacket.class, InvoicePacket::encode, InvoicePacket::decode, InvoicePacket::handle);
-        CHANNEL.registerMessage(id++, InvoiceActionPacket.class, InvoiceActionPacket::encode, InvoiceActionPacket::decode, InvoiceActionPacket::handle);
+        // Serveur → client : StatePacket (EntrepriseService.send), InvoicePacket (notifier des factures).
+        // Client → serveur : ActionPacket (EntrepriseScreen), InvoiceActionPacket (InvoiceScreen).
+        CHANNEL.registerMessage(id++, StatePacket.class, StatePacket::encode, StatePacket::decode, StatePacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(id++, ActionPacket.class, ActionPacket::encode, ActionPacket::decode, ActionPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(id++, InvoicePacket.class, InvoicePacket::encode, InvoicePacket::decode, InvoicePacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(id++, InvoiceActionPacket.class, InvoiceActionPacket::encode, InvoiceActionPacket::decode, InvoiceActionPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+    }
+
+    /**
+     * Bornes de taille des listes reçues : une taille annoncée négative ou supérieure est rejetée avant toute allocation.
+     * Chaque borne dépasse la taille réelle maximale envoyée (txs ≤ 50, factures ≤ 50, proches ≤ 20, grades ≤ 6 par la
+     * config) ; entreprises, employés (max_employes configurable) et invitations ne sont pas plafonnés côté données :
+     * borne large MAX_LIST.
+     */
+    static final int MAX_LIST = 4096, MAX_GRADES = 16, MAX_TXS = 64, MAX_INVOICES = 64, MAX_NEARBY = 32;
+
+    static <T> List<T> readList(FriendlyByteBuf b, Function<FriendlyByteBuf, T> reader, int max) {
+        int n = b.readVarInt();
+        if (n < 0 || n > max) throw new DecoderException("Liste trop longue : " + n + " (max " + max + ")");
+        List<T> out = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) out.add(reader.apply(b));
+        return out;
     }
 
     public static void send(ServerPlayer p, StatePacket s) { CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), s); }
@@ -100,9 +128,9 @@ public final class ModNetwork {
         }
         static CompanyView decode(FriendlyByteBuf b) {
             return new CompanyView(b.readVarInt(), b.readUtf(), b.readUtf(), b.readUUID(), b.readUtf(), b.readVarInt(),
-                    b.readList(GradeView::decode), b.readList(MemberView::decode), b.readBoolean(),
-                    b.readLong(), b.readBoolean(), b.readList(TxView::decode),
-                    b.readList(InvoiceView::decode), b.readList(PlayerView::decode));
+                    readList(b, GradeView::decode, MAX_GRADES), readList(b, MemberView::decode, MAX_LIST), b.readBoolean(),
+                    b.readLong(), b.readBoolean(), readList(b, TxView::decode, MAX_TXS),
+                    readList(b, InvoiceView::decode, MAX_INVOICES), readList(b, PlayerView::decode, MAX_NEARBY));
         }
     }
 
@@ -154,7 +182,7 @@ public final class ModNetwork {
         static StatePacket decode(FriendlyByteBuf b) {
             return new StatePacket(b.readBoolean(), b.readUtf(), b.readBoolean(), b.readLong(), b.readBoolean(),
                     b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readInt(),
-                    b.readList(CompanyView::decode), b.readList(InviteView::decode));
+                    readList(b, CompanyView::decode, MAX_LIST), readList(b, InviteView::decode, MAX_LIST));
         }
         static void handle(StatePacket p, Supplier<NetworkEvent.Context> c) {
             c.get().enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,

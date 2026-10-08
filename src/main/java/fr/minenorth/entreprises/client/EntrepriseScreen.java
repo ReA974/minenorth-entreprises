@@ -115,9 +115,11 @@ public class EntrepriseScreen extends Screen {
     private MineNorthButton btn(int x, int y, int w, int h, String label, int color, Runnable r) {
         return addRenderableWidget(new MineNorthButton(x, y, w, h, Component.literal(label), color, r));
     }
-    private EditBox box(int x, int y, int w, String hint, String value) {
+    private EditBox box(int x, int y, int w, String hint, String value) { return box(x, y, w, hint, value, 32); }
+    /** La longueur maximale est fixée avant setValue : une valeur restaurée n'est jamais tronquée sous sa limite. */
+    private EditBox box(int x, int y, int w, String hint, String value, int maxLength) {
         EditBox b = new EditBox(font, x, y, w, 18, Component.literal(hint));
-        b.setMaxLength(32);
+        b.setMaxLength(maxLength);
         b.setHint(Component.literal(hint));
         b.setValue(value == null ? "" : value);
         addRenderableWidget(b);
@@ -307,8 +309,7 @@ public class EntrepriseScreen extends Screen {
         label("MONTANT (€)", x, yf - 11, MineNorthStyle.BLUE);
         bInvAmount = box(x, yf, 100, "Montant €", kInvAmount);
         label("DESCRIPTION", x + 106, yf - 11, MineNorthStyle.BLUE);
-        bInvDesc = box(x + 106, yf, 186, "Description (64 max.)", kInvDesc);
-        bInvDesc.setMaxLength(64);
+        bInvDesc = box(x + 106, yf, 186, "Description (64 max.)", kInvDesc, 64);
         btn(x + 298, yf - 1, w - 298, 20, "Créer", MineNorthStyle.GREEN,
                 () -> send(ModNetwork.CREATE_INVOICE, c.id(), selPayer == null ? "" : selPayer.toString(),
                         bInvAmount.getValue(), bInvDesc.getValue(), 0)).enabled(selPayer != null);
@@ -376,10 +377,8 @@ public class EntrepriseScreen extends Screen {
 
         // Virement vers un joueur (nom RP) : réutilise le montant ci-dessus ; le motif est facultatif.
         int yp = yr + 24;
-        bRecipient = box(x, yp, 126, "Destinataire (nom RP)", kRecipient);
-        bRecipient.setMaxLength(64);
-        bMotif = box(x + 132, yp, 124, "Motif (facultatif)", kMotif);
-        bMotif.setMaxLength(64);
+        bRecipient = box(x, yp, 126, "Destinataire (nom RP)", kRecipient, 64);
+        bMotif = box(x + 132, yp, 124, "Motif (facultatif)", kMotif, 64);
         btn(x + 262, yp - 1, w - 262, 20, "Virer à un joueur", MineNorthStyle.GREEN,
                 () -> send(ModNetwork.TRANSFER_PLAYER, c.id(), bAmount.getValue(), bRecipient.getValue(), bMotif.getValue(), 0));
 
