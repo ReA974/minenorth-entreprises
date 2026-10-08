@@ -69,7 +69,7 @@ Ajouts en méthodes `default`, pour ne casser aucun mod déjà compilé. `BankSe
 - Nouvel onglet **TRANSACTIONS**, visible uniquement avec le droit de gestion.
 - En haut : solde, boutons **Déposer**, **Virer vers mon compte**, **Obtenir ma carte entreprise** (une carte par titulaire, regénérable si perdue).
 - Dessous : transactions paginées (date, libellé, montant coloré, solde après, auteur en identité RP via `MineNorth.displayName`).
-- `StatePacket` : solde, indicateur d'accès, 50 dernières transactions. `ActionPacket` : nouveaux codes `DEPOSIT=18`, `WITHDRAW=19`, `GET_BUSINESS_CARD=20` ; le montant passe par le champ numérique `a` en centimes.
+- `StatePacket` : solde, indicateur d'accès, 50 dernières transactions. `ActionPacket` : nouveaux codes `DEPOSIT=18`, `WITHDRAW=19`, `GET_BUSINESS_CARD=20` ; le montant est passé en texte (euros) dans `ActionPacket.a`, interprété par l'existant `EntrepriseService.euros(String)` ; pas dans `n`.
 - Charte `MineNorthStyle` et `MineNorthButton`.
 
 ## 8. Cohérence monétaire
