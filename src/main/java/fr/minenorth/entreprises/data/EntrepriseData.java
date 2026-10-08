@@ -223,6 +223,11 @@ public class EntrepriseData extends SavedData {
         setDirty();
     }
 
+    /** Supprime toutes les factures de l'entreprise (ouvertes ou closes) : à appeler après leur annulation. */
+    public void removeInvoicesOf(int companyId) {
+        if (invoices.values().removeIf(inv -> inv.companyId == companyId)) setDirty();
+    }
+
     private void pruneClosed(int companyId) {
         List<Invoice> closed = new ArrayList<>();
         for (Invoice inv : invoicesOf(companyId)) if (!inv.status.open()) closed.add(inv);   // plus récentes d'abord

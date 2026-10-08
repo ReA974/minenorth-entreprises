@@ -96,10 +96,13 @@ public final class InvoiceService {
         switch (inv.status) {
             case PAID: paidMessages(s, inv, companyName); return null;
             case FAILED: {
-                payer.sendSystemMessage(Component.literal("§eFonds insuffisants : la facture de " + EntrepriseService.money(inv.cents)
+                boolean noAccount = r == PayResult.NO_ACCOUNT;
+                payer.sendSystemMessage(Component.literal(noAccount
+                        ? "§eVous n'avez pas de compte bancaire : la facture sera prélevée dès que vous en aurez un et de l'argent dessus."
+                        : "§eFonds insuffisants : la facture de " + EntrepriseService.money(inv.cents)
                         + " sera prélevée automatiquement dès que vous aurez l'argent."));
                 EntrepriseService.tell(s, inv.issuer, "§e" + inv.payerName + " a signé la facture mais le paiement a échoué "
-                        + "(fonds insuffisants). Prélèvement automatique en attente.");
+                        + (noAccount ? "(pas de compte bancaire)" : "(fonds insuffisants)") + ". Prélèvement automatique en attente.");
                 return null;
             }
             case CANCELED: return "Entreprise indisponible.";
@@ -158,18 +161,28 @@ public final class InvoiceService {
         }
         BankService bank = MineNorth.bank();
         PayResult r;
+        boolean bankError = false;
         COLLECTING.add(inv.id);
         try {
             r = bank.transfer(s, inv.payer, c.accountId, inv.cents, BankTx.INCOME, "Facture : " + inv.description,
                     MineNorth.displayName(s, inv.payer));
         } catch (RuntimeException e) {
-            LOGGER.warn("Facture {} : erreur de la banque pendant le prélèvement.", inv.id, e);
+            LOGGER.error("Facture {} (entreprise {}, client {}, montant {}) : erreur de la banque pendant le prélèvement, facture annulée.",
+                    inv.id, inv.companyId, inv.payer, inv.cents, e);
+            bankError = true;
             r = PayResult.UNAVAILABLE;
         } finally {
             COLLECTING.remove(inv.id);
         }
         if (r == null) r = PayResult.UNAVAILABLE;
         d.setInvoiceAttempt(inv, System.currentTimeMillis());
+        if (bankError) {   // le montant a peut-être bougé : la facture ne doit jamais pouvoir être prélevée deux fois
+            d.setInvoiceStatus(inv, Status.CANCELED);
+            EntrepriseService.tell(s, inv.issuer, "§cErreur bancaire : la facture de " + inv.payerName + " ("
+                    + EntrepriseService.money(inv.cents) + ") a été annulée, contactez un administrateur.");
+            EntrepriseService.tell(s, inv.payer, "§cErreur bancaire : la facture a été annulée.");
+            return r;
+        }
         if (r.ok()) {
             d.setInvoiceStatus(inv, Status.PAID);
         } else if (r == PayResult.INSUFFICIENT_FUNDS || (r == PayResult.NO_ACCOUNT && !hasAccountSafe(bank, s, inv.payer))) {
@@ -282,5 +295,6 @@ public final class InvoiceService {
             EntrepriseService.tell(s, inv.payer, "§eFacture de " + EntrepriseService.money(inv.cents) + " (" + inv.description
                     + ") annulée : l'entreprise a fermé.");
         }
+        d.removeInvoicesOf(companyId);   // l'historique d'une entreprise disparue n'est plus consultable : on le purge
     }
 }

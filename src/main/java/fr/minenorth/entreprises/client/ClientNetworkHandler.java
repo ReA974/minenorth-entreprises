@@ -34,6 +34,9 @@ public final class ClientNetworkHandler {
         mc.setScreen(new InvoiceScreen(p));
     }
 
+    /** Déconnexion du serveur : les factures en file ne concernent plus cette session. */
+    static void reset() { PENDING.clear(); }
+
     /** Écran de facture terminé (réponse envoyée ou Échap) : facture suivante en attente, sinon retour au jeu. */
     static void nextInvoice() {
         ModNetwork.InvoicePacket next = PENDING.poll();

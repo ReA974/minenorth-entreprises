@@ -17,7 +17,7 @@ Les joueurs n'ont aucune commande : sans passage par le PNJ, le serveur refuse t
 - `facture_distance_blocs` (10, minimum 1) : distance maximale entre l'émetteur et le client à la création d'une facture.
 - `facture_signature_secondes` (300, minimum 1) : délai laissé au client pour signer.
 - `facture_relance_minutes` (10, minimum 1) : intervalle entre deux tentatives de prélèvement d'une facture signée mais impayée.
-- `facture_expiration_jours` (0, minimum 0) : une facture signée mais impayée est annulée après ce nombre de jours (0 = jamais).
+- `facture_expiration_jours` (0, minimum 0) : une facture signée mais impayée est annulée quand ce nombre de jours s'est écoulé depuis sa création (et non depuis l'échec) ; 0 = jamais.
 
 ## Salaires
 Versés à chaque intervalle aux employés connectés qui ont un compte bancaire, prélevés sur le **compte entreprise**
@@ -73,8 +73,8 @@ Un PDG ou un grade avec droit de gestion facture un client depuis l'onglet **FAC
   prélevée automatiquement toutes les `facture_relance_minutes`, et à chaque connexion du client. Le prélèvement
   fonctionne même si le client est hors ligne. Une facture payée est définitive.
 - **Annulation** : bouton « Annuler » de l'onglet FACTURES pour une facture à signer ou en échec, par un gérant de
-  l'entreprise ou un OP. Le client est prévenu. Avec `facture_expiration_jours` > 0, une facture en échec depuis
-  ce nombre de jours est annulée.
+  l'entreprise ou un OP. Le client est prévenu. Avec `facture_expiration_jours` > 0, une facture en échec est annulée
+  dès que ce nombre de jours s'est écoulé depuis sa création (pas depuis l'échec).
 - **Fermeture** : la dissolution ou le refus de l'entreprise, ou le wipe du client, annule les factures ouvertes (à
   signer ou en échec). Une entreprise qui n'est plus active ne peut plus rien prélever.
 - L'onglet liste les 50 dernières factures de l'entreprise, avec leur statut.
@@ -83,13 +83,13 @@ Un PDG ou un grade avec droit de gestion facture un client depuis l'onglet **FAC
 Dans la fiche d'une entreprise, les onglets **TRANSACTIONS** et **FACTURES** sont disponibles en **lecture seule** pour
 les OP : solde, 50 dernières opérations et liste des factures de l'entreprise ciblée. Aucune action bancaire
 (dépôt, virement, carte, création de facture) n'est possible depuis ce mode ; seule l'annulation d'une facture ouverte
-l'est. L'entreprise affichée est celle de l'onglet cliqué ; le solde figure aussi dans les onglets INFOS.
+l'est. L'entreprise affichée est celle de l'onglet cliqué ; le solde de l'entreprise figure dans son onglet INFOS et dans son onglet TRANSACTIONS (pas dans les lignes de la liste).
 
 ## Distributeur (ATM)
 - Une carte entreprise tenue en main est **refusée** par le distributeur (« Cette carte n'est pas reconnue par le
   distributeur. ») : elle ne sert qu'à payer.
 - Page Virement : « Virement à un joueur » ou « Virement à une entreprise ». La liste (paginée) contient les
-  entreprises **actives** ; une entreprise en attente, refusée ou dissoute n'y figure pas. Le virement part du compte
+  entreprises **actives** (au plus 100 : `StatePacket.MAX_COMPANIES` côté banque) ; une entreprise en attente, refusée ou dissoute n'y figure pas. Le virement part du compte
   perso du joueur, avec sa carte.
 
 ## API

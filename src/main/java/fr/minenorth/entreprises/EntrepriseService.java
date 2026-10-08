@@ -207,7 +207,7 @@ public final class EntrepriseService {
     }
 
     /** Texte saisi : sans codes couleur (§) ni caractères de contrôle, espaces normalisés. */
-    static String clean(String v) { return v == null ? "" : v.replaceAll("[\\p{Cntrl}§]", " ").trim().replaceAll("\\s+", " "); }
+    static String clean(String v) { return v == null ? "" : v.replaceAll("[\\p{Cntrl}\\p{Cf}§]", " ").trim().replaceAll("\\s+", " "); }
 
     /** Vérifie un nom + une activité. Retourne un message d'erreur ou null. */
     private static String validate(EntrepriseData d, String name, String activity, Company except, boolean admin) {
