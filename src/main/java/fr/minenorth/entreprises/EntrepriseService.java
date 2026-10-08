@@ -112,8 +112,49 @@ public final class EntrepriseService {
                 balance = 0; txs.clear();   // banque en erreur : l'écran s'ouvre quand même, sans historique
             }
         }
+        // Factures : même règle que l'historique (gérant de sa propre entreprise, ou OP sur l'entreprise ciblée).
+        List<ModNetwork.InvoiceView> invoices = new ArrayList<>();
+        if (withHistory) for (EntrepriseData.Invoice inv : EntrepriseData.get(s).invoicesOf(c.id)) {
+            if (invoices.size() >= ModNetwork.INVOICES_SENT) break;
+            invoices.add(new ModNetwork.InvoiceView(inv.id, inv.created, inv.payerName, inv.description, inv.cents, inv.status.ordinal()));
+        }
         return new ModNetwork.CompanyView(c.id, c.name, c.activity, c.owner, MineNorth.displayName(s, c.owner), c.status, grades, members,
-                c.dissolveRequested, balance, bankAccess, txs);
+                c.dissolveRequested, balance, bankAccess, txs, invoices, bankAccess ? nearby(s, viewer) : new ArrayList<>());
+    }
+
+    /** Autres joueurs en ligne à portée de facture du joueur {@code viewer} (même dimension), les plus proches d'abord. */
+    private static List<ModNetwork.PlayerView> nearby(MinecraftServer s, UUID viewer) {
+        List<ModNetwork.PlayerView> out = new ArrayList<>();
+        ServerPlayer me = s.getPlayerList().getPlayer(viewer);
+        if (me == null) return out;
+        double max = EntrepriseConfig.get().facture_distance_blocs;
+        List<ServerPlayer> near = new ArrayList<>();
+        for (ServerPlayer o : me.serverLevel().players()) {
+            if (o != me && !o.isSpectator() && o.distanceToSqr(me) <= max * max) near.add(o);
+        }
+        near.sort((a, b) -> Double.compare(a.distanceToSqr(me), b.distanceToSqr(me)));
+        for (ServerPlayer o : near) {
+            if (out.size() >= ModNetwork.NEARBY_SENT) break;
+            out.add(new ModNetwork.PlayerView(o.getUUID(), MineNorth.displayName(o)));
+        }
+        return out;
+    }
+
+    /**
+     * Signature ou refus d'une facture depuis l'écran du client (sans garde OPEN). Le service vérifie que {@code p} est
+     * bien le client de la facture : un id deviné renvoie « Facture introuvable. » sans rien modifier.
+     */
+    public static void invoiceAction(ServerPlayer p, int invoiceId, boolean sign) {
+        String err;
+        try {
+            err = sign ? InvoiceService.sign(p, invoiceId) : InvoiceService.refuse(p, invoiceId);
+        } catch (RuntimeException e) {
+            LOGGER.warn("Facture {} : action du client impossible.", invoiceId, e);
+            err = "Action impossible.";
+        }
+        if (err != null) p.sendSystemMessage(Component.literal("§c" + err));
+        else if (!sign) p.sendSystemMessage(Component.literal("§eFacture refusée."));
+        // signature réussie : InvoiceService a déjà prévenu le client (payée, ou prélèvement automatique en attente)
     }
 
     private static void send(ServerPlayer p, boolean admin, String msg, boolean ok) {
@@ -307,10 +348,31 @@ public final class EntrepriseService {
                 return R.ok("Virement de " + money(cents) + " à " + (dest == null ? clean(k.b()) : MineNorth.displayName(s, dest)) + " effectué.");
             }
             case ModNetwork.VIEW_TX: {
-                // OP seulement (handle a vérifié p.hasPermissions(2)) ; c existe (vérifié plus haut). Lecture seule.
-                if (!admin) return null;
+                // Joueur : simple rafraîchissement de sa propre vue (ex. joueurs proches pour une facture), lecture seule.
+                if (!admin) return R.ok("");
+                // OP (handle a vérifié p.hasPermissions(2)) ; c existe (vérifié plus haut). Lecture seule.
                 ADMIN_FOCUS.put(me, c.id);
                 return R.ok("");
+            }
+            case ModNetwork.CREATE_INVOICE: {
+                if (admin) return null;
+                // c = companyOf(me) : jamais un id fourni par le client. Droits, montant max, description, distance,
+                // client en ligne : vérifiés par InvoiceService.create.
+                UUID payer = strictUuid(k.a());
+                if (payer == null) return R.err("Client introuvable.");
+                long cents = euros(k.b());
+                if (cents <= 0) return R.err("Montant invalide.");
+                String err = InvoiceService.create(p, c, payer, cents, k.c());
+                if (err != null) return R.err(err);
+                return R.ok("Facture envoyée à " + MineNorth.displayName(s, payer) + ".");
+            }
+            case ModNetwork.CANCEL_INVOICE: {
+                // Joueur : seulement les factures de sa propre entreprise et s'il gère le compte. OP : entreprise ciblée.
+                EntrepriseData.Invoice inv = d.invoice(k.n());
+                if (inv == null || inv.companyId != c.id || (!admin && !CompanyAccounts.canBank(c, me))) return R.err("Facture introuvable.");
+                String err = InvoiceService.cancel(p, inv.id);
+                if (err != null) return R.err(err);
+                return R.ok("Facture annulée.");
             }
             case ModNetwork.GET_BUSINESS_CARD: {
                 if (admin) return null;
@@ -433,6 +495,15 @@ public final class EntrepriseService {
 
     private static UUID uuid(String v) {
         try { return UUID.fromString(v); } catch (RuntimeException e) { return new UUID(0, 0); }
+    }
+
+    /** UUID au format canonique (36 caractères), sinon null. */
+    private static UUID strictUuid(String v) {
+        if (v == null || v.length() != 36) return null;
+        try {
+            UUID u = UUID.fromString(v);
+            return u.toString().equalsIgnoreCase(v) ? u : null;
+        } catch (RuntimeException e) { return null; }
     }
 
     private static R create(ServerPlayer p, EntrepriseData d, EntrepriseConfig cfg, ActionPacket k) {

@@ -24,9 +24,14 @@ import java.util.UUID;
  * Mode OP : liste, création, validation, modification, dissolution, employés et grades.
  */
 public class EntrepriseScreen extends Screen {
-    private static final int W = 400, H = 244, ROWS = 6, ADMIN_ROWS = 7, TX_ROWS = 4, ADMIN_TX_ROWS = 7;
+    private static final int W = 400, H = 244, ROWS = 6, ADMIN_ROWS = 7, TX_ROWS = 4, ADMIN_TX_ROWS = 7, INV_ROWS = 5, NEAR_PER_PAGE = 9;
     /** Identifiants stables des onglets (indépendants de leur position à l'écran). */
-    private static final int T_INFOS = 0, T_MEMBERS = 1, T_GRADES = 2, T_TX = 3;
+    private static final int T_INFOS = 0, T_MEMBERS = 1, T_GRADES = 2, T_TX = 3, T_INV = 4;
+    /** Libellés et couleurs des statuts de facture, indexés par l'ordinal de {@code Invoice.Status}. */
+    private static final String[] INV_STATUS = { "En attente", "Payée", "Échec – prélèvement auto", "Refusée", "Annulée", "Expirée" };
+    private static final int[] INV_COLOR = { MineNorthStyle.WARN, MineNorthStyle.OK, MineNorthStyle.ALERT, MineNorthStyle.ALERT,
+            MineNorthStyle.MUTED, MineNorthStyle.MUTED };
+    private static final int INV_AWAITING = 0, INV_FAILED = 2;
     private static final DateTimeFormatter TX_DATE = DateTimeFormatter.ofPattern("dd/MM HH:mm").withZone(ZoneId.systemDefault());
 
     private ModNetwork.StatePacket st;
@@ -40,9 +45,14 @@ public class EntrepriseScreen extends Screen {
     private String message = "";
     private boolean messageOk = true;
 
-    private EditBox bName, bActivity, bOwner, bPlayer, bGradeName, bSalary, bAmount, bRecipient, bMotif;
+    /** Onglet FACTURES : panneau de création ouvert, client choisi (null = aucun), page de la liste des joueurs proches. */
+    private boolean invoicing;
+    private UUID selPayer;
+    private int nearPage;
+
+    private EditBox bName, bActivity, bOwner, bPlayer, bGradeName, bSalary, bAmount, bRecipient, bMotif, bInvAmount, bInvDesc;
     private String kName = "", kActivity = "", kOwner = "", kPlayer = "", kGradeName = "", kSalary = "", kAmount = "",
-            kRecipient = "", kMotif = "";
+            kRecipient = "", kMotif = "", kInvAmount = "", kInvDesc = "";
 
     private record Label(String text, int x, int y, int color) {}
     private record Card(int x, int y, int w, int h, int accent) {}
@@ -70,6 +80,9 @@ public class EntrepriseScreen extends Screen {
             kPlayer = "";
             kAmount = "";
             kRecipient = kMotif = "";
+            kInvAmount = kInvDesc = "";
+            selPayer = null;
+            invoicing = false;   // facture créée (ou autre action réussie) : retour à la liste
             selGrade = -1;
         }
         rebuild();
@@ -92,6 +105,8 @@ public class EntrepriseScreen extends Screen {
         if (bAmount != null) kAmount = bAmount.getValue();
         if (bRecipient != null) kRecipient = bRecipient.getValue();
         if (bMotif != null) kMotif = bMotif.getValue();
+        if (bInvAmount != null) kInvAmount = bInvAmount.getValue();
+        if (bInvDesc != null) kInvDesc = bInvDesc.getValue();
     }
     private void rebuild() { clearWidgets(); init(); }
     /** Change de vue en conservant ce qui a été saisi. */
@@ -140,7 +155,7 @@ public class EntrepriseScreen extends Screen {
         top = Math.max(4, (height - H) / 2);
         labels.clear();
         cards.clear();
-        bName = bActivity = bOwner = bPlayer = bGradeName = bSalary = bAmount = bRecipient = bMotif = null;
+        bName = bActivity = bOwner = bPlayer = bGradeName = bSalary = bAmount = bRecipient = bMotif = bInvAmount = bInvDesc = null;
 
         boolean sub = st.admin() && (sel >= 0 || creating);
         btn(left + W - 100, top + 10, 86, 16, sub ? "Retour" : "Fermer", MineNorthButton.GHOST, this::back);
@@ -159,7 +174,7 @@ public class EntrepriseScreen extends Screen {
 
     private void back() {
         if (st.admin() && (sel >= 0 || creating)) {
-            go(() -> { sel = -1; creating = false; tab = 0; page = 0; selGrade = -1; confirm = false; });
+            go(() -> { sel = -1; creating = false; tab = 0; page = 0; selGrade = -1; confirm = false; invoicing = false; });
         } else onClose();
     }
 
@@ -208,7 +223,7 @@ public class EntrepriseScreen extends Screen {
         GradeView mine = gradeOf(c, me);
         boolean manage = owner || (mine != null && mine.manage());
         boolean bank = !admin && c.bankAccess();
-        if ((tab == T_GRADES && !owner) || (tab == T_TX && !bank && !admin)) { tab = T_INFOS; page = 0; }
+        if ((tab == T_GRADES && !owner) || ((tab == T_TX || tab == T_INV) && !bank && !admin)) { tab = T_INFOS; page = 0; invoicing = false; }
 
         int x = left + 14, w = W - 28;
         List<String> names = new ArrayList<>();
@@ -216,21 +231,120 @@ public class EntrepriseScreen extends Screen {
         names.add("INFOS"); ids.add(T_INFOS);
         names.add("EMPLOYÉS"); ids.add(T_MEMBERS);
         if (owner) { names.add("GRADES"); ids.add(T_GRADES); }
-        // Mode OP : onglet en lecture seule ; le clic demande l'historique de cette entreprise au serveur (VIEW_TX).
+        // Mode OP : onglets en lecture seule (annulation de facture possible) ; le clic cible cette entreprise (VIEW_TX).
         if (bank || admin) { names.add("TRANSACTIONS"); ids.add(T_TX); }
-        for (int i = 0; i < names.size(); i++) {
+        if (bank || admin) { names.add("FACTURES"); ids.add(T_INV); }
+        // Jusqu'à 4 onglets : largeur fixe 90 (pas de 94). Au-delà : largeur = texte + marge commune, le tout tient dans w.
+        int n = names.size(), gap = 4, textSum = 0;
+        for (String s : names) textSum += font.width(s);
+        int pad = Math.max(4, (w - gap * (n - 1) - textSum) / n);
+        int tx = x;
+        for (int i = 0; i < n; i++) {
             final int t = ids.get(i);
-            btn(x + i * 94, top + 46, 90, 18, names.get(i), tab == t ? MineNorthStyle.CYAN : MineNorthStyle.DARK, () -> {
-                if (admin && t == T_TX) send(ModNetwork.VIEW_TX, c.id(), "", "", "", 0);
-                go(() -> { tab = t; page = 0; selGrade = -1; confirm = false; });
+            int tw = n <= 4 ? 90 : font.width(names.get(i)) + pad;
+            btn(tx, top + 46, tw, 18, names.get(i), tab == t ? MineNorthStyle.CYAN : MineNorthStyle.DARK, () -> {
+                if (admin && (t == T_TX || t == T_INV)) send(ModNetwork.VIEW_TX, c.id(), "", "", "", 0);
+                go(() -> { tab = t; page = 0; selGrade = -1; confirm = false; invoicing = false; });
             });
+            tx += tw + gap;
         }
         int y0 = top + 72;
         if (tab == T_INFOS) buildInfos(c, admin, owner, mine, x, y0, w);
         else if (tab == T_MEMBERS) buildMembers(c, admin, owner, manage, x, y0, w);
         else if (tab == T_GRADES) buildGrades(c, x, y0, w);
+        else if (tab == T_INV) buildInvoices(c, admin, x, y0, w);
         else if (admin) buildAdminTransactions(c, x, y0, w);
         else buildTransactions(c, x, y0, w);
+    }
+
+    /**
+     * Onglet FACTURES. Joueur (bankAccess) : bouton « Nouvelle facture » (panneau de création) et liste des factures.
+     * Mode OP : liste de l'entreprise ciblée, annulation possible, pas de création. Le serveur valide tout.
+     */
+    private void buildInvoices(CompanyView c, boolean admin, int x, int y0, int w) {
+        if (!admin) {
+            btn(x, y0 - 2, 120, 16, "Nouvelle facture", invoicing ? MineNorthStyle.CYAN : MineNorthStyle.GREEN, () -> {
+                // À l'ouverture du panneau : rafraîchit la liste des joueurs proches (VIEW_TX joueur = simple rafraîchissement).
+                if (!invoicing) send(ModNetwork.VIEW_TX, c.id(), "", "", "", 0);
+                go(() -> { invoicing = !invoicing; nearPage = 0; });
+            });
+        }
+        String info = admin ? "Lecture seule • annulation possible" : ModNetwork.INVOICES_SENT + " dernières factures";
+        right(info, x + w, y0 + 2, MineNorthStyle.MUTED);
+        if (invoicing && !admin) buildInvoiceForm(c, x, y0, w);
+        else invoiceList(c, admin, x, y0 + 18, w);
+    }
+
+    /** Panneau de création : joueur proche (sélection), montant, description (≤ 64), bouton Créer. */
+    private void buildInvoiceForm(CompanyView c, int x, int y0, int w) {
+        List<ModNetwork.PlayerView> near = c.nearby();
+        boolean found = false;
+        for (ModNetwork.PlayerView pv : near) if (pv.id().equals(selPayer)) found = true;
+        if (!found) selPayer = null;   // joueur parti entre deux rafraîchissements
+
+        label("CLIENT (JOUEUR À PROXIMITÉ)", x, y0 + 18, MineNorthStyle.BLUE);
+        int pages = Math.max(1, (near.size() + NEAR_PER_PAGE - 1) / NEAR_PER_PAGE);
+        nearPage = Math.max(0, Math.min(pages - 1, nearPage));
+        if (pages > 1) {
+            btn(x + w - 60, y0 + 16, 14, 12, "<", MineNorthStyle.DARK, () -> go(() -> nearPage--)).enabled(nearPage > 0);
+            String p = (nearPage + 1) + "/" + pages;
+            label(p, x + w - 30 - font.width(p) / 2, y0 + 18, MineNorthStyle.TEXT);
+            btn(x + w - 14, y0 + 16, 14, 12, ">", MineNorthStyle.DARK, () -> go(() -> nearPage++)).enabled(nearPage < pages - 1);
+        }
+        if (near.isEmpty()) label("Aucun joueur à proximité.", x, y0 + 34, MineNorthStyle.MUTED);
+        int cw = (w - 8) / 3;
+        for (int i = 0; i < NEAR_PER_PAGE; i++) {
+            int idx = nearPage * NEAR_PER_PAGE + i;
+            if (idx >= near.size()) break;
+            ModNetwork.PlayerView pv = near.get(idx);
+            boolean on = pv.id().equals(selPayer);
+            String name = font.plainSubstrByWidth(pv.name(), cw - 8);
+            btn(x + (i % 3) * (cw + 4), y0 + 30 + (i / 3) * 18, cw, 16, name, on ? MineNorthStyle.CYAN : MineNorthStyle.DARK,
+                    () -> go(() -> selPayer = pv.id()));
+        }
+
+        int yf = y0 + 99;
+        label("MONTANT (€)", x, yf - 11, MineNorthStyle.BLUE);
+        bInvAmount = box(x, yf, 100, "Montant €", kInvAmount);
+        label("DESCRIPTION", x + 106, yf - 11, MineNorthStyle.BLUE);
+        bInvDesc = box(x + 106, yf, 186, "Description (64 max.)", kInvDesc);
+        bInvDesc.setMaxLength(64);
+        btn(x + 298, yf - 1, w - 298, 20, "Créer", MineNorthStyle.GREEN,
+                () -> send(ModNetwork.CREATE_INVOICE, c.id(), selPayer == null ? "" : selPayer.toString(),
+                        bInvAmount.getValue(), bInvDesc.getValue(), 0)).enabled(selPayer != null);
+        label("Le client doit être à proximité et signer la facture sur son écran.", x, yf + 26, MineNorthStyle.MUTED, w);
+    }
+
+    /** Liste paginée des factures : deux lignes par facture (date, client, montant / description, statut) et bouton Annuler. */
+    private void invoiceList(CompanyView c, boolean admin, int x, int yl, int w) {
+        List<ModNetwork.InvoiceView> list = c.invoices();
+        int pages = Math.max(1, (list.size() + INV_ROWS - 1) / INV_ROWS);
+        page = Math.max(0, Math.min(pages - 1, page));
+        if (list.isEmpty()) label("Aucune facture pour le moment.", x, yl + 6, MineNorthStyle.MUTED);
+        int rRight = x + w - 52;   // bord droit du texte (le bouton Annuler occupe x + w - 48 .. x + w - 2)
+        for (int i = 0; i < INV_ROWS; i++) {
+            int idx = page * INV_ROWS + i;
+            if (idx >= list.size()) break;
+            ModNetwork.InvoiceView v = list.get(idx);
+            int y = yl + i * 22;
+            int si = v.status() >= 0 && v.status() < INV_STATUS.length ? v.status() : 4;
+            int color = INV_COLOR[si];
+            card(x, y, w, 20, color);
+            // Ligne 1 : date | client | montant (aligné à droite).
+            String amount = MineNorthStyle.euros(v.cents());
+            label(TX_DATE.format(Instant.ofEpochMilli(v.created())), x + 6, y + 2, MineNorthStyle.MUTED, 56);
+            label(v.payerName(), x + 64, y + 2, MineNorthStyle.WHITE, rRight - font.width(amount) - 6 - (x + 64));
+            right(amount, rRight, y + 2, MineNorthStyle.WHITE);
+            // Ligne 2 : description tronquée | statut coloré (aligné à droite).
+            String status = INV_STATUS[si];
+            right(status, rRight, y + 11, color);
+            label(v.description(), x + 6, y + 11, MineNorthStyle.TEXT, rRight - font.width(status) - 6 - (x + 6));
+            if (si == INV_AWAITING || si == INV_FAILED) {
+                final int id = v.id();
+                btn(x + w - 48, y + 3, 46, 14, "Annuler", MineNorthStyle.PINK, () -> send(ModNetwork.CANCEL_INVOICE, c.id(), "", "", "", id));
+            }
+        }
+        pager(pages, x + w, top + H - 36);
     }
 
     private void balanceLine(CompanyView c, int x, int y) {
