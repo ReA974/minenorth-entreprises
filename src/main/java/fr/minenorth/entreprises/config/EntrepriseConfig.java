@@ -33,6 +33,14 @@ public final class EntrepriseConfig {
     public double salaire_max_euros = 2000;
     public int max_employes = 20;
     public int max_grades = 6;
+    /** Distance maximale (blocs, même dimension) entre l'émetteur et le client à la création d'une facture. */
+    public int facture_distance_blocs = 10;
+    /** Délai de signature d'une facture, en secondes ; passé ce délai, elle expire. */
+    public int facture_signature_secondes = 300;
+    /** Intervalle entre deux tentatives de prélèvement d'une facture signée mais impayée, en minutes. */
+    public int facture_relance_minutes = 10;
+    /** Une facture signée mais impayée est annulée après ce nombre de jours (0 = jamais). */
+    public int facture_expiration_jours = 0;
 
     public static EntrepriseConfig get() { return current; }
 
@@ -57,6 +65,10 @@ public final class EntrepriseConfig {
         c.salaire_intervalle_minutes = Math.max(1, c.salaire_intervalle_minutes);
         c.max_employes = Math.max(1, c.max_employes);
         c.max_grades = Math.max(1, Math.min(6, c.max_grades));
+        c.facture_distance_blocs = Math.max(1, c.facture_distance_blocs);
+        c.facture_signature_secondes = Math.max(1, c.facture_signature_secondes);
+        c.facture_relance_minutes = Math.max(1, c.facture_relance_minutes);
+        c.facture_expiration_jours = Math.max(0, c.facture_expiration_jours);
         // On ne réécrit pas un fichier illisible : l'admin peut ainsi corriger sa faute de frappe.
         if (ok) {
             try {

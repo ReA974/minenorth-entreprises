@@ -1,6 +1,8 @@
 package fr.minenorth.entreprises;
 
+import com.mojang.logging.LogUtils;
 import fr.minenorth.api.BankService;
+import fr.minenorth.api.BankTx;
 import fr.minenorth.api.MineNorth;
 import fr.minenorth.api.PayResult;
 import com.mojang.authlib.GameProfile;
@@ -21,7 +23,10 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import org.slf4j.Logger;
+
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -31,10 +36,14 @@ import java.util.UUID;
 /** Toute la logique serveur des entreprises : ouverture des menus, actions, paie. */
 @Mod.EventBusSubscriber
 public final class EntrepriseService {
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     private EntrepriseService() {}
 
     /** Joueurs dont le menu a été ouvert par le PNJ (/entreprise <joueur>). Sans cela, aucune action n'est acceptée. */
     private static final Set<UUID> OPEN = new HashSet<>();
+    /** Mode OP : entreprise dont l'historique est affiché (VIEW_TX). Transitoire, vidé à CLOSE et à la déconnexion. */
+    private static final Map<UUID, Integer> ADMIN_FOCUS = new HashMap<>();
     private static long lastPay = 0;
 
     private record R(String msg, boolean ok) {
@@ -44,7 +53,7 @@ public final class EntrepriseService {
 
     // ------------------------------------------------------------------ ouverture
     public static void openFor(ServerPlayer p) { OPEN.add(p.getUUID()); send(p, false, "", true); }
-    public static void openAdmin(ServerPlayer p) { send(p, true, "", true); }
+    public static void openAdmin(ServerPlayer p) { ADMIN_FOCUS.remove(p.getUUID()); send(p, true, "", true); }
 
     /** Clic droit avec la tablette : réservée au PDG d'une entreprise active. */
     public static void openTablet(ServerPlayer p) {
@@ -72,7 +81,12 @@ public final class EntrepriseService {
         p.sendSystemMessage(Component.literal("§bVous avez reçu votre tablette d'entreprise : clic droit pour gérer votre entreprise."));
     }
 
-    private static ModNetwork.CompanyView view(MinecraftServer s, Company c) {
+    /**
+     * Vue envoyée à {@code viewer}. Mode joueur : le solde et l'historique ne sont joints que si le serveur lui accorde
+     * l'accès bancaire ({@link CompanyAccounts#canBank}). Mode admin (appelant déjà vérifié OP) : bankAccess = false
+     * (aucune action bancaire), solde toujours joint, historique seulement si {@code focused} (entreprise ciblée par VIEW_TX).
+     */
+    private static ModNetwork.CompanyView view(MinecraftServer s, Company c, UUID viewer, boolean admin, boolean focused) {
         List<ModNetwork.GradeView> grades = new ArrayList<>();
         for (Grade g : c.grades) grades.add(new ModNetwork.GradeView(g.name, g.salary, g.manage));
         List<ModNetwork.MemberView> members = new ArrayList<>();
@@ -81,7 +95,66 @@ public final class EntrepriseService {
             if (on != null) m.name = on.getGameProfile().getName();   // pseudo gardé comme clé
             members.add(new ModNetwork.MemberView(m.id, MineNorth.displayName(s, m.id), Math.max(0, Math.min(c.grades.size() - 1, m.grade)), on != null));
         }
-        return new ModNetwork.CompanyView(c.id, c.name, c.activity, c.owner, MineNorth.displayName(s, c.owner), c.status, grades, members, c.dissolveRequested);
+        boolean bankAccess = !admin && CompanyAccounts.canBank(c, viewer);
+        boolean withHistory = bankAccess || (admin && focused);
+        long balance = 0;
+        List<ModNetwork.TxView> txs = new ArrayList<>();
+        if (bankAccess || admin) {
+            BankService bank = MineNorth.bank();
+            try {
+                balance = bank.balance(s, c.accountId);
+                if (withHistory) for (BankTx t : bank.history(s, c.accountId, ModNetwork.TX_SENT)) {
+                    if (txs.size() >= ModNetwork.TX_SENT) break;
+                    txs.add(new ModNetwork.TxView(t.time(), t.category(), t.cents(), t.balanceAfter(), t.label(), t.actor()));
+                }
+            } catch (RuntimeException e) {
+                LOGGER.warn("Entreprise « {} » : lecture du compte bancaire impossible pour l'écran.", c.name, e);
+                balance = 0; txs.clear();   // banque en erreur : l'écran s'ouvre quand même, sans historique
+            }
+        }
+        // Factures : même règle que l'historique (gérant de sa propre entreprise, ou OP sur l'entreprise ciblée).
+        List<ModNetwork.InvoiceView> invoices = new ArrayList<>();
+        if (withHistory) for (EntrepriseData.Invoice inv : EntrepriseData.get(s).invoicesOf(c.id)) {
+            if (invoices.size() >= ModNetwork.INVOICES_SENT) break;
+            invoices.add(new ModNetwork.InvoiceView(inv.id, inv.created, inv.payerName, inv.description, inv.cents, inv.status.ordinal()));
+        }
+        return new ModNetwork.CompanyView(c.id, c.name, c.activity, c.owner, MineNorth.displayName(s, c.owner), c.status, grades, members,
+                c.dissolveRequested, balance, bankAccess, txs, invoices, bankAccess ? nearby(s, viewer) : new ArrayList<>());
+    }
+
+    /** Autres joueurs en ligne à portée de facture du joueur {@code viewer} (même dimension), les plus proches d'abord. */
+    private static List<ModNetwork.PlayerView> nearby(MinecraftServer s, UUID viewer) {
+        List<ModNetwork.PlayerView> out = new ArrayList<>();
+        ServerPlayer me = s.getPlayerList().getPlayer(viewer);
+        if (me == null) return out;
+        double max = EntrepriseConfig.get().facture_distance_blocs;
+        List<ServerPlayer> near = new ArrayList<>();
+        for (ServerPlayer o : me.serverLevel().players()) {
+            if (o != me && !o.isSpectator() && o.distanceToSqr(me) <= max * max) near.add(o);
+        }
+        near.sort((a, b) -> Double.compare(a.distanceToSqr(me), b.distanceToSqr(me)));
+        for (ServerPlayer o : near) {
+            if (out.size() >= ModNetwork.NEARBY_SENT) break;
+            out.add(new ModNetwork.PlayerView(o.getUUID(), MineNorth.displayName(o)));
+        }
+        return out;
+    }
+
+    /**
+     * Signature ou refus d'une facture depuis l'écran du client (sans garde OPEN). Le service vérifie que {@code p} est
+     * bien le client de la facture : un id deviné renvoie « Facture introuvable. » sans rien modifier.
+     */
+    public static void invoiceAction(ServerPlayer p, int invoiceId, boolean sign) {
+        String err;
+        try {
+            err = sign ? InvoiceService.sign(p, invoiceId) : InvoiceService.refuse(p, invoiceId);
+        } catch (RuntimeException e) {
+            LOGGER.warn("Facture {} : action du client impossible.", invoiceId, e);
+            err = "Action impossible.";
+        }
+        if (err != null) p.sendSystemMessage(Component.literal("§c" + err));
+        else if (!sign) p.sendSystemMessage(Component.literal("§eFacture refusée."));
+        // signature réussie : InvoiceService a déjà prévenu le client (payée, ou prélèvement automatique en attente)
     }
 
     private static void send(ServerPlayer p, boolean admin, String msg, boolean ok) {
@@ -91,9 +164,10 @@ public final class EntrepriseService {
         List<ModNetwork.InviteView> invites = new ArrayList<>();
         Company self = d.companyOf(p.getUUID());
         if (admin) {
-            for (Company c : d.all()) list.add(view(p.server, c));
+            Integer focus = ADMIN_FOCUS.get(p.getUUID());
+            for (Company c : d.all()) list.add(view(p.server, c, p.getUUID(), true, focus != null && focus == c.id));
         } else if (self != null) {
-            list.add(view(p.server, self));
+            list.add(view(p.server, self, p.getUUID(), false, false));
         } else {
             for (Map.Entry<Integer, String> e : d.invitesOf(p.getUUID()).entrySet()) {
                 Company c = d.get(e.getKey());
@@ -105,7 +179,7 @@ public final class EntrepriseService {
     }
 
     // ------------------------------------------------------------------ outils
-    private static void tell(MinecraftServer s, UUID id, String text) {
+    static void tell(MinecraftServer s, UUID id, String text) {
         ServerPlayer p = s.getPlayerList().getPlayer(id);
         if (p != null) p.sendSystemMessage(Component.literal(text));
     }
@@ -127,13 +201,13 @@ public final class EntrepriseService {
         } catch (NumberFormatException e) { return -1; }
     }
 
-    private static String money(long cents) {
+    static String money(long cents) {
         long a = Math.abs(cents);
         return (cents < 0 ? "-" : "") + (a / 100) + (a % 100 == 0 ? "" : "," + String.format("%02d", a % 100)) + " €";
     }
 
     /** Texte saisi : sans codes couleur (§) ni caractères de contrôle, espaces normalisés. */
-    private static String clean(String v) { return v == null ? "" : v.replaceAll("[\\p{Cntrl}§]", " ").trim().replaceAll("\\s+", " "); }
+    static String clean(String v) { return v == null ? "" : v.replaceAll("[\\p{Cntrl}\\p{Cf}§]", " ").trim().replaceAll("\\s+", " "); }
 
     /** Vérifie un nom + une activité. Retourne un message d'erreur ou null. */
     private static String validate(EntrepriseData d, String name, String activity, Company except, boolean admin) {
@@ -157,20 +231,28 @@ public final class EntrepriseService {
 
     private static void dissolve(MinecraftServer s, EntrepriseData d, Company c, String reason) {
         for (Member m : c.members.values()) tell(s, m.id, "§eL'entreprise « " + c.name + " » " + reason + ".");
+        InvoiceService.onCompanyClosed(s, c.id);   // avant la fermeture du compte : plus aucun prélèvement possible
+        CompanyAccounts.close(s, c, false);   // solde rendu au patron (ou au trésor), puis compte fermé
         d.remove(c.id);
     }
 
     // ------------------------------------------------------------------ actions
     public static void handle(ServerPlayer p, ActionPacket k) {
-        if (k.action() == ModNetwork.CLOSE) { OPEN.remove(p.getUUID()); return; }
+        if (k.action() == ModNetwork.CLOSE) { OPEN.remove(p.getUUID()); ADMIN_FOCUS.remove(p.getUUID()); return; }
         boolean admin = k.admin();
         if (admin ? !p.hasPermissions(2) : !OPEN.contains(p.getUUID())) return;
+        EntrepriseData d = EntrepriseData.get(p.server);
+        Company before = admin ? d.get(k.companyId()) : d.companyOf(p.getUUID());
         R r;
         try {
             r = act(p, k, admin);
         } catch (RuntimeException e) {
             r = R.err("Action impossible.");
         }
+        // Embauche, licenciement, grade, droit « manage », patron : les signataires suivent toujours.
+        Company after = admin ? d.get(k.companyId()) : d.companyOf(p.getUUID());
+        if (before != null && d.get(before.id) == before) { CompanyAccounts.syncSigners(p.server, before); CompanyAccounts.syncListing(p.server, before); }
+        if (after != null && after != before && d.get(after.id) == after) { CompanyAccounts.syncSigners(p.server, after); CompanyAccounts.syncListing(p.server, after); }
         if (r != null) send(p, admin, r.msg(), r.ok());
     }
 
@@ -243,6 +325,59 @@ public final class EntrepriseService {
                 if (hasTablet(p)) return R.err("Vous avez déjà une tablette d'entreprise.");
                 giveTablet(s, me);
                 return R.ok("Tablette d'entreprise remise.");
+            }
+            case ModNetwork.DEPOSIT:
+            case ModNetwork.WITHDRAW: {
+                if (admin) return null;
+                long cents = euros(k.a());
+                if (cents <= 0) return R.err("Montant invalide.");
+                boolean dep = k.action() == ModNetwork.DEPOSIT;
+                String err = dep ? CompanyAccounts.deposit(p, c, cents) : CompanyAccounts.withdraw(p, c, cents);
+                if (err != null) return R.err(err);
+                return R.ok((dep ? "Dépôt de " : "Virement de ") + money(cents) + " effectué.");
+            }
+            case ModNetwork.TRANSFER_PLAYER: {
+                if (admin) return null;
+                long cents = euros(k.a());
+                if (cents <= 0) return R.err("Montant invalide.");
+                String motif = clean(k.c());
+                if (motif.length() > 64) motif = motif.substring(0, 64).trim();
+                String err = CompanyAccounts.payPlayer(p, c, cents, clean(k.b()), motif);
+                if (err != null) return R.err(err);
+                UUID dest = CompanyAccounts.findAccountByRpName(s, clean(k.b()));
+                return R.ok("Virement de " + money(cents) + " à " + (dest == null ? clean(k.b()) : MineNorth.displayName(s, dest)) + " effectué.");
+            }
+            case ModNetwork.VIEW_TX: {
+                // Joueur : simple rafraîchissement de sa propre vue (ex. joueurs proches pour une facture), lecture seule.
+                if (!admin) return R.ok("");
+                // OP (handle a vérifié p.hasPermissions(2)) ; c existe (vérifié plus haut). Lecture seule.
+                ADMIN_FOCUS.put(me, c.id);
+                return R.ok("");
+            }
+            case ModNetwork.CREATE_INVOICE: {
+                if (admin) return null;
+                // c = companyOf(me) : jamais un id fourni par le client. Droits, montant max, description, distance,
+                // client en ligne : vérifiés par InvoiceService.create.
+                UUID payer = strictUuid(k.a());
+                if (payer == null) return R.err("Client introuvable.");
+                long cents = euros(k.b());
+                if (cents <= 0) return R.err("Montant invalide.");
+                String err = InvoiceService.create(p, c, payer, cents, k.c());
+                if (err != null) return R.err(err);
+                return R.ok("Facture envoyée à " + MineNorth.displayName(s, payer) + ".");
+            }
+            case ModNetwork.CANCEL_INVOICE: {
+                // Joueur : seulement les factures de sa propre entreprise et s'il gère le compte. OP : entreprise ciblée.
+                EntrepriseData.Invoice inv = d.invoice(k.n());
+                if (inv == null || inv.companyId != c.id || (!admin && !CompanyAccounts.canBank(c, me))) return R.err("Facture introuvable.");
+                String err = InvoiceService.cancel(p, inv.id);
+                if (err != null) return R.err(err);
+                return R.ok("Facture annulée.");
+            }
+            case ModNetwork.GET_BUSINESS_CARD: {
+                if (admin) return null;
+                if (!CompanyAccounts.giveCard(p, c)) return R.err("Impossible de remettre la carte entreprise.");
+                return R.ok("Carte entreprise remise.");
             }
             case ModNetwork.LEAVE: {
                 if (admin || me.equals(c.owner)) return R.err("Le patron ne peut pas démissionner : il doit dissoudre l'entreprise.");
@@ -322,6 +457,7 @@ public final class EntrepriseService {
                 if (!admin) return null;
                 if (c.status == EntrepriseData.ACTIVE) return R.err("Cette entreprise est déjà active.");
                 c.status = EntrepriseData.ACTIVE; d.setDirty();
+                CompanyAccounts.syncListing(s, c);
                 tell(s, c.owner, "§aVotre entreprise « " + c.name + " » a été validée !");
                 giveTablet(s, c.owner);
                 return R.ok("Entreprise validée.");
@@ -350,6 +486,7 @@ public final class EntrepriseService {
                     tell(s, c.owner, "§aVous êtes maintenant le patron de « " + name + " ».");
                 }
                 c.ownerName = boss.getName(); c.name = name; c.activity = activity; d.setDirty();
+                CompanyAccounts.rename(s, c);
                 return R.ok("Entreprise modifiée.");
             }
             default: return null;
@@ -360,11 +497,21 @@ public final class EntrepriseService {
         try { return UUID.fromString(v); } catch (RuntimeException e) { return new UUID(0, 0); }
     }
 
+    /** UUID au format canonique (36 caractères), sinon null. */
+    private static UUID strictUuid(String v) {
+        if (v == null || v.length() != 36) return null;
+        try {
+            UUID u = UUID.fromString(v);
+            return u.toString().equalsIgnoreCase(v) ? u : null;
+        } catch (RuntimeException e) { return null; }
+    }
+
     private static R create(ServerPlayer p, EntrepriseData d, EntrepriseConfig cfg, ActionPacket k) {
         if (d.companyOf(p.getUUID()) != null) return R.err("Vous faites déjà partie d'une entreprise.");
         String name = clean(k.a()), activity = clean(k.b());
         String err = validate(d, name, activity, null, false);
         if (err != null) return R.err(err);
+        if (MineNorth.bank() == BankService.NONE) return R.err("Service bancaire indisponible.");
         long fee = cfg.feeCents();
         if (fee > 0) {
             PayResult pay = MineNorth.bank().charge(p, fee, "entreprises:creation");
@@ -373,6 +520,13 @@ public final class EntrepriseService {
         boolean pending = cfg.validation_op;
         Company c = d.create(name, activity, p.getUUID(), p.getGameProfile().getName(),
                 pending ? EntrepriseData.PENDING : EntrepriseData.ACTIVE, fee);
+        if (!CompanyAccounts.open(p.server, c)) {
+            refundFee(p.server, c);
+            d.remove(c.id);
+            return R.err("Impossible d'ouvrir le compte bancaire de l'entreprise.");
+        }
+        CompanyAccounts.syncSigners(p.server, c);
+        CompanyAccounts.syncListing(p.server, c);
         if (pending) {
             for (ServerPlayer op : p.server.getPlayerList().getPlayers()) {
                 if (op.hasPermissions(2)) op.sendSystemMessage(Component.literal("§e[Entreprises] " + MineNorth.displayName(p)
@@ -391,7 +545,14 @@ public final class EntrepriseService {
         GameProfile boss = resolve(s, k.c(), true);
         if (boss == null) return R.err("Patron introuvable.");
         if (d.companyOf(boss.getId()) != null) return R.err(boss.getName() + " fait déjà partie d'une entreprise.");
+        if (MineNorth.bank() == BankService.NONE) return R.err("Service bancaire indisponible.");
         Company c = d.create(name, activity, boss.getId(), boss.getName(), EntrepriseData.ACTIVE, 0);
+        if (!CompanyAccounts.open(s, c)) {
+            d.remove(c.id);
+            return R.err("Impossible d'ouvrir le compte bancaire de l'entreprise.");
+        }
+        CompanyAccounts.syncSigners(s, c);
+        CompanyAccounts.syncListing(s, c);
         tell(s, boss.getId(), "§aUn administrateur a créé votre entreprise « " + c.name + " ».");
         giveTablet(s, boss.getId());
         return R.ok("Entreprise « " + c.name + " » créée.");
@@ -401,6 +562,7 @@ public final class EntrepriseService {
     @SubscribeEvent
     public static void tick(TickEvent.ServerTickEvent e) {
         if (e.phase != TickEvent.Phase.END || e.getServer().getTickCount() % 20 != 0) return;
+        InvoiceService.tick(e.getServer());   // une fois par seconde ; chaque facture a ses propres délais
         long now = System.currentTimeMillis();
         if (lastPay == 0) { lastPay = now; return; }
         if (now - lastPay < EntrepriseConfig.get().salaire_intervalle_minutes * 60_000L) return;
@@ -408,13 +570,18 @@ public final class EntrepriseService {
         payroll(e.getServer());
     }
 
-    /** Verse les salaires aux employés connectés, prélevés sur le compte bancaire du patron. */
+    /**
+     * Verse les salaires aux employés connectés, prélevés sur le compte bancaire de l'entreprise
+     * ({@code c.accountId}). Si au moins un salaire échoue faute de fonds, une seule alerte de
+     * redressement judiciaire est envoyée par société et par cycle aux membres qui gèrent le compte
+     * ({@link CompanyAccounts#canBank}). Aucune sanction automatique.
+     */
     private static void payroll(MinecraftServer s) {
         EntrepriseData d = EntrepriseData.get(s);
         BankService bank = MineNorth.bank();
         for (Company c : d.all()) {
             if (c.status != EntrepriseData.ACTIVE) continue;
-            long paid = 0; int unpaid = 0;
+            long paid = 0; int unpaid = 0, insufficient = 0;
             for (Member m : c.members.values()) {
                 ServerPlayer emp = s.getPlayerList().getPlayer(m.id);
                 Grade g = c.gradeOf(m.id);
@@ -423,21 +590,44 @@ public final class EntrepriseService {
                     emp.sendSystemMessage(Component.literal("§cSalaire non versé : vous n'avez pas de compte bancaire."));
                     continue;
                 }
-                if (!bank.hasAccount(s, c.owner) || !bank.transfer(s, c.owner, m.id, g.salary).ok()) {
+                PayResult r = bank.transfer(s, c.accountId, m.id, g.salary, BankTx.SALARY, "Salaire " + g.name, "Entreprise");
+                if (!r.ok()) {
                     unpaid++;
-                    emp.sendSystemMessage(Component.literal("§cSalaire non versé : le compte du patron de « " + c.name + " » est insuffisant."));
+                    if (r == PayResult.INSUFFICIENT_FUNDS) {
+                        insufficient++;
+                        emp.sendSystemMessage(Component.literal("§cSalaire non versé : le compte de l'entreprise « " + c.name + " » est insuffisant."));
+                    } else if (r == PayResult.NO_ACCOUNT) {
+                        // le compte de l'employé a été vérifié plus haut : c'est celui de l'entreprise
+                        emp.sendSystemMessage(Component.literal("§cSalaire non versé : le compte de l'entreprise est introuvable."));
+                    } else {
+                        emp.sendSystemMessage(Component.literal("§cSalaire non versé : " + r.message()));
+                    }
                     continue;
                 }
                 paid += g.salary;
                 emp.sendSystemMessage(Component.literal("§aSalaire reçu de « " + c.name + " » : " + money(g.salary) + "."));
             }
-            if (paid > 0) tell(s, c.owner, "§e« " + c.name + " » : " + money(paid) + " de salaires prélevés sur votre compte.");
-            if (unpaid > 0) tell(s, c.owner, "§c« " + c.name + " » : " + unpaid + " salaire(s) non versé(s), solde insuffisant.");
+            if (paid > 0) tell(s, c.owner, "§e« " + c.name + " » : " + money(paid) + " de salaires prélevés sur le compte entreprise.");
+            if (unpaid > 0) tell(s, c.owner, "§c« " + c.name + " » : " + unpaid + " salaire(s) non versé(s).");
+            if (insufficient > 0) {
+                String alert = "§cLes comptes de « " + c.name + " » sont à 0 ou insuffisants : l'entreprise risque le redressement judiciaire.";
+                tell(s, c.owner, alert);
+                for (Member m : c.members.values()) {
+                    if (!m.id.equals(c.owner) && CompanyAccounts.canBank(c, m.id)) tell(s, m.id, alert);
+                }
+            }
         }
     }
 
     @SubscribeEvent
     public static void logout(PlayerEvent.PlayerLoggedOutEvent e) {
         OPEN.remove(e.getEntity().getUUID());
+        ADMIN_FOCUS.remove(e.getEntity().getUUID());
+        if (e.getEntity() instanceof ServerPlayer p) InvoiceService.onLogout(p);
+    }
+
+    @SubscribeEvent
+    public static void login(PlayerEvent.PlayerLoggedInEvent e) {
+        if (e.getEntity() instanceof ServerPlayer p) InvoiceService.onLogin(p);
     }
 }
