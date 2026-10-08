@@ -39,7 +39,7 @@ Ajouts en méthodes `default`, pour ne casser aucun mod déjà compilé. `BankSe
 - `closeAccount(s, accountId)` : ferme le compte, solde à 0 exigé.
 - `setSigners(s, accountId, Set<UUID>)` : joueurs autorisés à payer avec la carte entreprise.
 - `payFromAccount(s, accountId, cents, source, actor)` : débit sans carte, versé au Treasury avec la source, transaction enregistrée.
-- `history(s, accountId, limit)` : liste de `BankTx` (nouveau record de l'API : date, type, montant, solde après, libellé, auteur, contrepartie), du plus récent au plus ancien.
+- `history(s, accountId, limit)` : liste de `BankTx` (nouveau record de l'API : date, type, montant, solde après, libellé, auteur ; pas de contrepartie), du plus récent au plus ancien.
 
 `transfer` existant sert aux dépôts, virements, paies et recettes.
 
@@ -69,7 +69,7 @@ Ajouts en méthodes `default`, pour ne casser aucun mod déjà compilé. `BankSe
 - Nouvel onglet **TRANSACTIONS**, visible uniquement avec le droit de gestion.
 - En haut : solde, boutons **Déposer**, **Virer vers mon compte**, **Obtenir ma carte entreprise** (une carte par titulaire, regénérable si perdue).
 - Dessous : transactions paginées (date, libellé, montant coloré, solde après, auteur en identité RP via `MineNorth.displayName`).
-- `StatePacket` : solde, indicateur d'accès, 50 dernières transactions. `ActionPacket` : nouveaux codes `DEPOSIT=18`, `WITHDRAW=19`, `GET_BUSINESS_CARD=20` ; le montant passe par le champ numérique `n` en centimes.
+- `StatePacket` : solde, indicateur d'accès, 50 dernières transactions. `ActionPacket` : nouveaux codes `DEPOSIT=18`, `WITHDRAW=19`, `GET_BUSINESS_CARD=20` ; le montant passe par le champ numérique `a` en centimes.
 - Charte `MineNorthStyle` et `MineNorthButton`.
 
 ## 8. Cohérence monétaire
