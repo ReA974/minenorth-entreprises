@@ -138,7 +138,7 @@ public final class EntrepriseService {
     }
 
     // ------------------------------------------------------------------ outils
-    private static void tell(MinecraftServer s, UUID id, String text) {
+    static void tell(MinecraftServer s, UUID id, String text) {
         ServerPlayer p = s.getPlayerList().getPlayer(id);
         if (p != null) p.sendSystemMessage(Component.literal(text));
     }
@@ -160,13 +160,13 @@ public final class EntrepriseService {
         } catch (NumberFormatException e) { return -1; }
     }
 
-    private static String money(long cents) {
+    static String money(long cents) {
         long a = Math.abs(cents);
         return (cents < 0 ? "-" : "") + (a / 100) + (a % 100 == 0 ? "" : "," + String.format("%02d", a % 100)) + " €";
     }
 
     /** Texte saisi : sans codes couleur (§) ni caractères de contrôle, espaces normalisés. */
-    private static String clean(String v) { return v == null ? "" : v.replaceAll("[\\p{Cntrl}§]", " ").trim().replaceAll("\\s+", " "); }
+    static String clean(String v) { return v == null ? "" : v.replaceAll("[\\p{Cntrl}§]", " ").trim().replaceAll("\\s+", " "); }
 
     /** Vérifie un nom + une activité. Retourne un message d'erreur ou null. */
     private static String validate(EntrepriseData d, String name, String activity, Company except, boolean admin) {
@@ -190,6 +190,7 @@ public final class EntrepriseService {
 
     private static void dissolve(MinecraftServer s, EntrepriseData d, Company c, String reason) {
         for (Member m : c.members.values()) tell(s, m.id, "§eL'entreprise « " + c.name + " » " + reason + ".");
+        InvoiceService.onCompanyClosed(s, c.id);   // avant la fermeture du compte : plus aucun prélèvement possible
         CompanyAccounts.close(s, c, false);   // solde rendu au patron (ou au trésor), puis compte fermé
         d.remove(c.id);
     }
@@ -490,6 +491,7 @@ public final class EntrepriseService {
     @SubscribeEvent
     public static void tick(TickEvent.ServerTickEvent e) {
         if (e.phase != TickEvent.Phase.END || e.getServer().getTickCount() % 20 != 0) return;
+        InvoiceService.tick(e.getServer());   // une fois par seconde ; chaque facture a ses propres délais
         long now = System.currentTimeMillis();
         if (lastPay == 0) { lastPay = now; return; }
         if (now - lastPay < EntrepriseConfig.get().salaire_intervalle_minutes * 60_000L) return;
@@ -550,5 +552,11 @@ public final class EntrepriseService {
     public static void logout(PlayerEvent.PlayerLoggedOutEvent e) {
         OPEN.remove(e.getEntity().getUUID());
         ADMIN_FOCUS.remove(e.getEntity().getUUID());
+        if (e.getEntity() instanceof ServerPlayer p) InvoiceService.onLogout(p);
+    }
+
+    @SubscribeEvent
+    public static void login(PlayerEvent.PlayerLoggedInEvent e) {
+        if (e.getEntity() instanceof ServerPlayer p) InvoiceService.onLogin(p);
     }
 }

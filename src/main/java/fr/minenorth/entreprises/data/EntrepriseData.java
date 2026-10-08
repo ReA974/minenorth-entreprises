@@ -45,10 +45,43 @@ public class EntrepriseData extends SavedData {
         public boolean isIn(UUID player) { return player != null && (player.equals(owner) || members.containsKey(player)); }
     }
 
+    /** Facture d'une entreprise à un client. Seuls {@code status} et {@code lastAttempt} changent après la création. */
+    public static final class Invoice {
+        public enum Status {
+            AWAITING_SIGNATURE, PAID, FAILED, REFUSED, CANCELED, EXPIRED;
+            /** Facture encore ouverte : à signer, ou signée et en attente de prélèvement. */
+            public boolean open() { return this == AWAITING_SIGNATURE || this == FAILED; }
+        }
+        public final int id, companyId;
+        public final UUID issuer, payer;
+        /** Noms RP au moment de la création. */
+        public final String issuerName, payerName;
+        public final long cents;
+        public final String description;
+        /** Date de création (epoch ms). */
+        public final long created;
+        public Status status;
+        /** Dernière tentative de prélèvement (epoch ms), 0 si aucune. */
+        public long lastAttempt;
+
+        public Invoice(int id, int companyId, UUID issuer, String issuerName, UUID payer, String payerName,
+                       long cents, String description, long created, Status status, long lastAttempt) {
+            this.id = id; this.companyId = companyId; this.issuer = issuer; this.issuerName = issuerName;
+            this.payer = payer; this.payerName = payerName; this.cents = cents; this.description = description;
+            this.created = created; this.status = status; this.lastAttempt = lastAttempt;
+        }
+    }
+
+    /** Factures closes (payées, refusées, annulées, expirées) gardées par entreprise. */
+    public static final int CLOSED_INVOICES_KEPT = 100;
+
     private final Map<Integer, Company> companies = new LinkedHashMap<>();
+    /** Factures par id (ordre croissant de création). */
+    private final Map<Integer, Invoice> invoices = new LinkedHashMap<>();
     /** Invitations en attente : invité -> (id entreprise -> nom de celui qui invite). Non sauvegardé. */
     private final Map<UUID, Map<Integer, String>> invites = new LinkedHashMap<>();
     private int nextId = 1;
+    private int nextInvoiceId = 1;
 
     public static EntrepriseData get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(EntrepriseData::load, EntrepriseData::new, NAME);
@@ -81,6 +114,21 @@ public class EntrepriseData extends SavedData {
             }
             if (c.owner != null) { d.companies.put(c.id, c); d.nextId = Math.max(d.nextId, c.id + 1); }
         }
+        // Factures : absentes des anciennes sauvegardes (liste vide).
+        d.nextInvoiceId = Math.max(1, tag.getInt("nextInvoiceId"));
+        ListTag il = tag.getList("invoices", Tag.TAG_COMPOUND);
+        for (int i = 0; i < il.size(); i++) {
+            CompoundTag t = il.getCompound(i);
+            if (!t.hasUUID("issuer") || !t.hasUUID("payer")) continue;
+            Invoice.Status st;
+            try { st = Invoice.Status.valueOf(t.getString("status")); }
+            catch (IllegalArgumentException e) { st = Invoice.Status.CANCELED; }   // statut inconnu : jamais prélevé
+            Invoice inv = new Invoice(t.getInt("id"), t.getInt("companyId"), t.getUUID("issuer"), t.getString("issuerName"),
+                    t.getUUID("payer"), t.getString("payerName"), t.getLong("cents"), t.getString("description"),
+                    t.getLong("created"), st, t.getLong("lastAttempt"));
+            d.invoices.put(inv.id, inv);
+            d.nextInvoiceId = Math.max(d.nextInvoiceId, inv.id + 1);
+        }
         return d;
     }
 
@@ -112,7 +160,73 @@ public class EntrepriseData extends SavedData {
             list.add(t);
         }
         tag.put("companies", list);
+        tag.putInt("nextInvoiceId", nextInvoiceId);
+        ListTag il = new ListTag();
+        for (Invoice inv : invoices.values()) {
+            CompoundTag t = new CompoundTag();
+            t.putInt("id", inv.id); t.putInt("companyId", inv.companyId);
+            t.putUUID("issuer", inv.issuer); t.putString("issuerName", inv.issuerName);
+            t.putUUID("payer", inv.payer); t.putString("payerName", inv.payerName);
+            t.putLong("cents", inv.cents); t.putString("description", inv.description);
+            t.putLong("created", inv.created); t.putString("status", inv.status.name());
+            t.putLong("lastAttempt", inv.lastAttempt);
+            il.add(t);
+        }
+        tag.put("invoices", il);
         return tag;
+    }
+
+    // ------------------------------------------------------------------ factures
+    public Invoice newInvoice(int companyId, UUID issuer, String issuerName, UUID payer, String payerName,
+                              long cents, String description, long created) {
+        Invoice inv = new Invoice(nextInvoiceId++, companyId, issuer, issuerName, payer, payerName, cents, description,
+                created, Invoice.Status.AWAITING_SIGNATURE, 0);
+        invoices.put(inv.id, inv);
+        setDirty();
+        return inv;
+    }
+
+    public Invoice invoice(int id) { return invoices.get(id); }
+
+    /** Factures d'une entreprise, de la plus récente à la plus ancienne. */
+    public List<Invoice> invoicesOf(int companyId) {
+        List<Invoice> out = new ArrayList<>();
+        for (Invoice inv : invoices.values()) if (inv.companyId == companyId) out.add(inv);
+        out.sort((a, b) -> Integer.compare(b.id, a.id));
+        return out;
+    }
+
+    /** Factures adressées à un client, de la plus récente à la plus ancienne. */
+    public List<Invoice> invoicesOfPayer(UUID payer) {
+        List<Invoice> out = new ArrayList<>();
+        for (Invoice inv : invoices.values()) if (inv.payer.equals(payer)) out.add(inv);
+        out.sort((a, b) -> Integer.compare(b.id, a.id));
+        return out;
+    }
+
+    /** Factures ouvertes (à signer ou en attente de prélèvement), copie sûre à parcourir. */
+    public List<Invoice> openInvoices() {
+        List<Invoice> out = new ArrayList<>();
+        for (Invoice inv : invoices.values()) if (inv.status.open()) out.add(inv);
+        return out;
+    }
+
+    /** Change le statut, marque la sauvegarde et, si la facture est close, purge les plus anciennes closes de l'entreprise. */
+    public void setInvoiceStatus(Invoice inv, Invoice.Status status) {
+        inv.status = status;
+        setDirty();
+        if (!status.open()) pruneClosed(inv.companyId);
+    }
+
+    public void setInvoiceAttempt(Invoice inv, long when) {
+        inv.lastAttempt = when;
+        setDirty();
+    }
+
+    private void pruneClosed(int companyId) {
+        List<Invoice> closed = new ArrayList<>();
+        for (Invoice inv : invoicesOf(companyId)) if (!inv.status.open()) closed.add(inv);   // plus récentes d'abord
+        for (int i = CLOSED_INVOICES_KEPT; i < closed.size(); i++) invoices.remove(closed.get(i).id);
     }
 
     public Collection<Company> all() { return companies.values(); }
