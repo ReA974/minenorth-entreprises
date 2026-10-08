@@ -24,7 +24,7 @@ public final class EntrepriseWipe {
         List<Integer> owned = new ArrayList<>();
         for (EntrepriseData.Company c : d.all()) {
             if (e.player().equals(c.owner)) owned.add(c.id);
-            else if (c.members.remove(e.player()) != null) any = true;
+            else if (c.members.remove(e.player()) != null) { any = true; CompanyAccounts.syncSigners(e.server(), c); }
         }
         for (int id : owned) {
             EntrepriseData.Company c = d.get(id);
