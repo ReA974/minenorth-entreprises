@@ -85,6 +85,8 @@ public final class CompanyAccounts {
             balance = next;
         }
         if (bank.closeAccount(s, c.accountId)) return true;
+        // Compte orphelin avec solde résiduel : il ne doit jamais rester proposé dans la liste de l'ATM.
+        bank.setAccountListed(s, c.accountId, false);
         LOGGER.warn("Entreprise « {} » (id {}) : fermeture du compte {} impossible, solde résiduel {} centimes.",
                 c.name, c.id, c.accountId, bank.balance(s, c.accountId));
         return false;
@@ -115,6 +117,45 @@ public final class CompanyAccounts {
         String name = MineNorth.displayName(p);
         PayResult r = MineNorth.bank().transfer(p.server, c.accountId, p.getUUID(), cents, BankTx.WITHDRAW, "Virement vers " + name, name);
         if (r == PayResult.NO_ACCOUNT && MineNorth.bank().hasAccount(p.server, p.getUUID())) return "Le compte de l'entreprise est introuvable.";
+        return r.ok() ? null : r.message();
+    }
+
+    /**
+     * Compte d'un joueur désigné par son nom RP (« Prénom Nom », sans tenir compte de la casse), parmi les joueurs
+     * qui ont une carte d'identité et un compte bancaire. Jamais par pseudo. null si aucun joueur ou si plusieurs
+     * joueurs portent ce nom (destinataire ambigu : on ne devine pas).
+     */
+    public static UUID findAccountByRpName(MinecraftServer s, String rpName) {
+        if (s == null || rpName == null) return null;
+        String wanted = rpName.trim();
+        if (wanted.isEmpty()) return null;
+        BankService bank = MineNorth.bank();
+        UUID found = null;
+        for (UUID id : MineNorth.identity().known(s)) {
+            if (id == null) continue;
+            String rp = MineNorth.identity().get(s, id).map(i -> i.fullName()).orElse(null);   // nom RP uniquement
+            if (rp == null || !rp.trim().equalsIgnoreCase(wanted) || !bank.hasAccount(s, id)) continue;
+            if (found != null && !found.equals(id)) return null;
+            found = id;
+        }
+        return found;
+    }
+
+    /**
+     * Virement du compte de l'entreprise vers le compte d'un joueur désigné par son nom RP.
+     * {@code motif} doit déjà être nettoyé et borné par l'appelant. Retourne un message d'erreur, ou null.
+     */
+    public static String payPlayer(ServerPlayer p, Company c, long cents, String rpName, String motif) {
+        String err = check(c, p, cents);
+        if (err != null) return err;
+        MinecraftServer s = p.server;
+        UUID dest = findAccountByRpName(s, rpName);
+        if (dest == null) return "Aucun joueur de ce nom.";
+        if (dest.equals(p.getUUID())) return "Utilisez « Virer vers mon compte ».";
+        String label = "Virement à " + MineNorth.displayName(s, dest) + (motif == null || motif.isEmpty() ? "" : " : " + motif);
+        BankService bank = MineNorth.bank();
+        PayResult r = bank.transfer(s, c.accountId, dest, cents, BankTx.WITHDRAW, label, MineNorth.displayName(p));
+        if (r == PayResult.NO_ACCOUNT && bank.hasAccount(s, dest)) return "Le compte de l'entreprise est introuvable.";
         return r.ok() ? null : r.message();
     }
 

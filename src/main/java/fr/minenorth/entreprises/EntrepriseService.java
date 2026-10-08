@@ -288,6 +288,17 @@ public final class EntrepriseService {
                 if (err != null) return R.err(err);
                 return R.ok((dep ? "Dépôt de " : "Virement de ") + money(cents) + " effectué.");
             }
+            case ModNetwork.TRANSFER_PLAYER: {
+                if (admin) return null;
+                long cents = euros(k.a());
+                if (cents <= 0) return R.err("Montant invalide.");
+                String motif = clean(k.c());
+                if (motif.length() > 64) motif = motif.substring(0, 64).trim();
+                String err = CompanyAccounts.payPlayer(p, c, cents, clean(k.b()), motif);
+                if (err != null) return R.err(err);
+                UUID dest = CompanyAccounts.findAccountByRpName(s, clean(k.b()));
+                return R.ok("Virement de " + money(cents) + " à " + (dest == null ? clean(k.b()) : MineNorth.displayName(s, dest)) + " effectué.");
+            }
             case ModNetwork.GET_BUSINESS_CARD: {
                 if (admin) return null;
                 if (!CompanyAccounts.giveCard(p, c)) return R.err("Impossible de remettre la carte entreprise.");

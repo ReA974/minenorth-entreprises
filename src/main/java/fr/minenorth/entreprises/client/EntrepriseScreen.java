@@ -24,7 +24,7 @@ import java.util.UUID;
  * Mode OP : liste, création, validation, modification, dissolution, employés et grades.
  */
 public class EntrepriseScreen extends Screen {
-    private static final int W = 400, H = 244, ROWS = 6, ADMIN_ROWS = 7, TX_ROWS = 5;
+    private static final int W = 400, H = 244, ROWS = 6, ADMIN_ROWS = 7, TX_ROWS = 4;
     /** Identifiants stables des onglets (indépendants de leur position à l'écran). */
     private static final int T_INFOS = 0, T_MEMBERS = 1, T_GRADES = 2, T_TX = 3;
     private static final DateTimeFormatter TX_DATE = DateTimeFormatter.ofPattern("dd/MM HH:mm").withZone(ZoneId.systemDefault());
@@ -40,8 +40,9 @@ public class EntrepriseScreen extends Screen {
     private String message = "";
     private boolean messageOk = true;
 
-    private EditBox bName, bActivity, bOwner, bPlayer, bGradeName, bSalary, bAmount;
-    private String kName = "", kActivity = "", kOwner = "", kPlayer = "", kGradeName = "", kSalary = "", kAmount = "";
+    private EditBox bName, bActivity, bOwner, bPlayer, bGradeName, bSalary, bAmount, bRecipient, bMotif;
+    private String kName = "", kActivity = "", kOwner = "", kPlayer = "", kGradeName = "", kSalary = "", kAmount = "",
+            kRecipient = "", kMotif = "";
 
     private record Label(String text, int x, int y, int color) {}
     private record Card(int x, int y, int w, int h, int accent) {}
@@ -68,6 +69,7 @@ public class EntrepriseScreen extends Screen {
             if (creating) { creating = false; kName = kActivity = kOwner = ""; }
             kPlayer = "";
             kAmount = "";
+            kRecipient = kMotif = "";
             selGrade = -1;
         }
         rebuild();
@@ -88,6 +90,8 @@ public class EntrepriseScreen extends Screen {
         if (bGradeName != null) kGradeName = bGradeName.getValue();
         if (bSalary != null) kSalary = bSalary.getValue();
         if (bAmount != null) kAmount = bAmount.getValue();
+        if (bRecipient != null) kRecipient = bRecipient.getValue();
+        if (bMotif != null) kMotif = bMotif.getValue();
     }
     private void rebuild() { clearWidgets(); init(); }
     /** Change de vue en conservant ce qui a été saisi. */
@@ -136,7 +140,7 @@ public class EntrepriseScreen extends Screen {
         top = Math.max(4, (height - H) / 2);
         labels.clear();
         cards.clear();
-        bName = bActivity = bOwner = bPlayer = bGradeName = bSalary = bAmount = null;
+        bName = bActivity = bOwner = bPlayer = bGradeName = bSalary = bAmount = bRecipient = bMotif = null;
 
         boolean sub = st.admin() && (sel >= 0 || creating);
         btn(left + W - 100, top + 10, 86, 16, sub ? "Retour" : "Fermer", MineNorthButton.GHOST, this::back);
@@ -240,9 +244,18 @@ public class EntrepriseScreen extends Screen {
         btn(x + 192, yr - 1, w - 192, 20, "Virer vers mon compte", MineNorthStyle.DARK,
                 () -> send(ModNetwork.WITHDRAW, c.id(), bAmount.getValue(), "", "", 0));
 
+        // Virement vers un joueur (nom RP) : réutilise le montant ci-dessus ; le motif est facultatif.
+        int yp = yr + 24;
+        bRecipient = box(x, yp, 126, "Destinataire (nom RP)", kRecipient);
+        bRecipient.setMaxLength(64);
+        bMotif = box(x + 132, yp, 124, "Motif (facultatif)", kMotif);
+        bMotif.setMaxLength(64);
+        btn(x + 262, yp - 1, w - 262, 20, "Virer à un joueur", MineNorthStyle.GREEN,
+                () -> send(ModNetwork.TRANSFER_PLAYER, c.id(), bAmount.getValue(), bRecipient.getValue(), bMotif.getValue(), 0));
+
         // Colonnes : date | libellé | montant (aligné à droite) | solde après (aligné à droite) | auteur.
         int cDate = x + 6, cLabel = x + 66, rAmount = x + 234, rAfter = x + 302, cActor = x + 308;
-        int yh = y0 + 44;
+        int yh = y0 + 68;
         label("DATE", cDate, yh, MineNorthStyle.BLUE);
         label("LIBELLÉ", cLabel, yh, MineNorthStyle.BLUE);
         right("MONTANT", rAmount, yh, MineNorthStyle.BLUE);
