@@ -31,6 +31,8 @@ public class EntrepriseData extends SavedData {
         public int status = PENDING; public long feePaid; public long created;
         /** Le PDG a demandé la dissolution : un OP doit l'accepter ou la refuser. */
         public boolean dissolveRequested;
+        /** Ouverture voulue par la direction (bouton de la tablette). Affichée sur la carte seulement si quelqu'un de l'entreprise est connecté. */
+        public boolean open;
         /** Identifiant du compte EuroBank de l'entreprise (jamais le patron). */
         public UUID accountId;
         /** Du plus haut (index 0) au plus bas. Le patron n'a pas de grade. */
@@ -99,6 +101,7 @@ public class EntrepriseData extends SavedData {
             c.ownerName = t.getString("ownerName"); c.status = t.getInt("status");
             c.feePaid = t.getLong("feePaid"); c.created = t.getLong("created");
             c.dissolveRequested = t.getBoolean("dissolveRequested");
+            c.open = t.getBoolean("open");
             if (t.hasUUID("accountId")) c.accountId = t.getUUID("accountId");
             else { c.accountId = UUID.randomUUID(); d.setDirty(); }   // migration : le compte est ouvert au démarrage du serveur
             ListTag gl = t.getList("grades", Tag.TAG_COMPOUND);
@@ -142,6 +145,7 @@ public class EntrepriseData extends SavedData {
             t.putUUID("owner", c.owner); t.putString("ownerName", c.ownerName); t.putInt("status", c.status);
             t.putLong("feePaid", c.feePaid); t.putLong("created", c.created);
             t.putBoolean("dissolveRequested", c.dissolveRequested);
+            t.putBoolean("open", c.open);
             t.putUUID("accountId", c.accountId);
             ListTag gl = new ListTag();
             for (Grade g : c.grades) {

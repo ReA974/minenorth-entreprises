@@ -423,6 +423,8 @@ public class EntrepriseScreen extends Screen {
         long payroll = 0;
         for (MemberView m : c.members()) if (!c.grades().isEmpty()) payroll += c.grades().get(Math.max(0, Math.min(c.grades().size() - 1, m.grade()))).salary();
         String status = c.status() == 0 ? "En attente de validation" : c.dissolveRequested() ? "Active • dissolution demandée" : "Active";
+        boolean canToggle = !admin && c.status() == 1 && (owner || (mine != null && mine.manage()));
+        String openState = c.open() ? "Ouverte" : "Fermée";
 
         if (admin) {
             label("NOM", x, y0, MineNorthStyle.BLUE);
@@ -457,13 +459,17 @@ public class EntrepriseScreen extends Screen {
         int lx = x + 10, y = y0 + 8;
         kv("Activité :", c.activity(), lx, y);
         kv("Patron :", c.ownerName(), lx, y + 13);
-        kv("Statut :", status, lx, y + 26);
+        kv("Statut :", status + " • " + openState, lx, y + 26);
         kv("Employés :", c.members().size() + " / " + st.maxEmployees(), lx, y + 39);
         if (owner) kv("Votre rôle :", "Patron", lx, y + 52);
         else kv("Votre grade :", mine == null ? "—" : mine.name() + " • salaire " + MineNorthStyle.euros(mine.salary()), lx, y + 52);
         kv("Masse salariale :", MineNorthStyle.euros(payroll) + " par paie (toutes les " + st.payMinutes() + " min)", lx, y + 65);
         if (c.bankAccess()) kv("Solde du compte :", MineNorthStyle.euros(c.balance()), lx, y + 78);
         label("Salaires versés aux employés connectés, prélevés sur le compte de l'entreprise.", x, y0 + 102, MineNorthStyle.MUTED, w);
+        if (canToggle) {
+            btn(x, y0 + 142, w, 20, c.open() ? "FERMER L'ENTREPRISE" : "OUVRIR L'ENTREPRISE", c.open() ? MineNorthStyle.PINK : MineNorthStyle.GREEN,
+                    () -> send(ModNetwork.SET_OPEN, c.id(), "", "", "", c.open() ? 0 : 1));
+        }
         if (owner) {
             // Le PDG ne peut ni renommer ni dissoudre lui-même : il demande la dissolution à un administrateur.
             btn(x, y0 + 118, half, 20, "OBTENIR LA TABLETTE", MineNorthStyle.CYAN, () -> send(ModNetwork.GET_TABLET, c.id(), "", "", "", 0));

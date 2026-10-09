@@ -33,9 +33,10 @@ public final class ModNetwork {
             TRANSFER_PLAYER = 21,   // a = montant (€), b = nom RP du destinataire, c = motif (≤ 64)
             VIEW_TX = 22,           // OP : companyId = entreprise ciblée (historique et factures) ; joueur : simple rafraîchissement
             CREATE_INVOICE = 23,    // a = UUID du client, b = montant (€), c = description (≤ 64)
-            CANCEL_INVOICE = 24;    // n = id de la facture
+            CANCEL_INVOICE = 24,    // n = id de la facture
+            SET_OPEN = 25;          // n = 1 ouvrir, 0 fermer (patron ou grade « gérer »)
 
-    private static final String PROTOCOL = "3";
+    private static final String PROTOCOL = "4";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MineNorthEntreprises.MOD_ID, "network"), () -> PROTOCOL, PROTOCOL::equals, PROTOCOL::equals);
     private static int id = 0;
@@ -119,18 +120,18 @@ public final class ModNetwork {
     public record CompanyView(int id, String name, String activity, UUID owner, String ownerName, int status,
                               List<GradeView> grades, List<MemberView> members, boolean dissolveRequested,
                               long balance, boolean bankAccess, List<TxView> txs,
-                              List<InvoiceView> invoices, List<PlayerView> nearby) {
+                              List<InvoiceView> invoices, List<PlayerView> nearby, boolean open) {
         static void encode(FriendlyByteBuf b, CompanyView c) {
             b.writeVarInt(c.id); b.writeUtf(c.name); b.writeUtf(c.activity); b.writeUUID(c.owner); b.writeUtf(c.ownerName); b.writeVarInt(c.status);
             b.writeCollection(c.grades, GradeView::encode); b.writeCollection(c.members, MemberView::encode); b.writeBoolean(c.dissolveRequested);
             b.writeLong(c.balance); b.writeBoolean(c.bankAccess); b.writeCollection(c.txs, TxView::encode);
-            b.writeCollection(c.invoices, InvoiceView::encode); b.writeCollection(c.nearby, PlayerView::encode);
+            b.writeCollection(c.invoices, InvoiceView::encode); b.writeCollection(c.nearby, PlayerView::encode); b.writeBoolean(c.open);
         }
         static CompanyView decode(FriendlyByteBuf b) {
             return new CompanyView(b.readVarInt(), b.readUtf(), b.readUtf(), b.readUUID(), b.readUtf(), b.readVarInt(),
                     readList(b, GradeView::decode, MAX_GRADES), readList(b, MemberView::decode, MAX_LIST), b.readBoolean(),
                     b.readLong(), b.readBoolean(), readList(b, TxView::decode, MAX_TXS),
-                    readList(b, InvoiceView::decode, MAX_INVOICES), readList(b, PlayerView::decode, MAX_NEARBY));
+                    readList(b, InvoiceView::decode, MAX_INVOICES), readList(b, PlayerView::decode, MAX_NEARBY), b.readBoolean());
         }
     }
 

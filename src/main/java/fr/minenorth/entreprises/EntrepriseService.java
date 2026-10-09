@@ -119,7 +119,7 @@ public final class EntrepriseService {
             invoices.add(new ModNetwork.InvoiceView(inv.id, inv.created, inv.payerName, inv.description, inv.cents, inv.status.ordinal()));
         }
         return new ModNetwork.CompanyView(c.id, c.name, c.activity, c.owner, MineNorth.displayName(s, c.owner), c.status, grades, members,
-                c.dissolveRequested, balance, bankAccess, txs, invoices, bankAccess ? nearby(s, viewer) : new ArrayList<>());
+                c.dissolveRequested, balance, bankAccess, txs, invoices, bankAccess ? nearby(s, viewer) : new ArrayList<>(), c.open);
     }
 
     /** Autres joueurs en ligne à portée de facture du joueur {@code viewer} (même dimension), les plus proches d'abord. */
@@ -318,6 +318,13 @@ public final class EntrepriseService {
                 c.dissolveRequested = false; d.setDirty();
                 tell(s, c.owner, "§eVotre demande de dissolution de « " + c.name + " » a été refusée.");
                 return R.ok("Demande de dissolution refusée.");
+            }
+            case ModNetwork.SET_OPEN: {
+                if (admin || !manage) return R.err("Réservé au patron et aux grades de gestion.");
+                if (c.status != EntrepriseData.ACTIVE) return R.err("L'entreprise n'est pas encore validée.");
+                c.open = k.n() == 1; d.setDirty();
+                return R.ok(c.open ? "Entreprise ouverte (visible « Ouvert » sur la carte tant que quelqu'un est connecté)."
+                        : "Entreprise fermée.");
             }
             case ModNetwork.GET_TABLET: {
                 if (admin || !me.equals(c.owner)) return R.err("Seul le PDG peut obtenir la tablette.");

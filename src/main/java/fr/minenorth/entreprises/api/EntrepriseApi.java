@@ -65,6 +65,18 @@ public final class EntrepriseApi {
         return Math.max(0, Math.min(c.grades.size() - 1, m.grade)) <= minGrade;
     }
 
+    /**
+     * Entreprise ouverte : active, ouverte par la direction ET au moins un membre (patron ou employé) connecté.
+     * Appelé par la carte (minenorth_map) par réflexion : ne pas changer le nom ni les paramètres.
+     */
+    public static boolean isOpen(MinecraftServer s, int id) {
+        Company c = active(s, id);
+        if (c == null || !c.open) return false;
+        if (s.getPlayerList().getPlayer(c.owner) != null) return true;
+        for (java.util.UUID m : c.members.keySet()) if (s.getPlayerList().getPlayer(m) != null) return true;
+        return false;
+    }
+
     /** Nom de l'entreprise active du joueur (patron ou employé), ou "" s'il n'en a pas. */
     public static String companyName(ServerPlayer p) {
         Company c = EntrepriseData.get(p.server).companyOf(p.getUUID());
