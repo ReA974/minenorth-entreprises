@@ -96,3 +96,9 @@ l'est. L'entreprise affichée est celle de l'onglet cliqué ; le solde de l'entr
 `EntrepriseApi.accountOf(server, companyId)` renvoie l'UUID du compte entreprise (ou `null`). Les autres mods s'en
 servent avec `MineNorth.bank().payFromAccount(...)` pour payer depuis ce compte (versé au Treasury avec une source) et
 `MineNorth.bank().transfer(...)` pour créditer ou débiter de compte à compte.
+
+## Licence
+
+**Tous droits réservés - MineNorthRP.** Réutilisation, copie, modification, décompilation / ingénierie
+inverse (y compris par outils d'intelligence artificielle) et utilisation pour entraîner une IA sont
+**interdites** sans autorisation écrite. Voir [LICENSE](LICENSE).
