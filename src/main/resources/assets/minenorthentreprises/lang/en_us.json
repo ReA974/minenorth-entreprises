@@ -1,1 +1,6 @@
-{"item.minenorthentreprises.tablette_entreprise":"Tablette d'entreprise"}
+{
+  "item.minenorthentreprises.tablette_entreprise": "Tablette d'entreprise",
+  "block.minenorthentreprises.distributeur": "Vending Machine",
+  "item.minenorthentreprises.distributeur": "Vending Machine",
+  "itemGroup.minenorthentreprises": "MineNorth Businesses"
+}

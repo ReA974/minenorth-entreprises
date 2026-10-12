@@ -13,7 +13,9 @@ public class MineNorthEntreprises {
     public MineNorthEntreprises() {
         EntrepriseConfig.load();
         ModNetwork.register();
-        ModItems.register(FMLJavaModLoadingContext.get().getModEventBus());
+        var modBus = FMLJavaModLoadingContext.get().getModEventBus();
+        fr.minenorth.entreprises.vending.ModVending.register(modBus);
+        ModItems.register(modBus);
         // Facture créée : l'écran de signature s'ouvre chez le client ; le message dans le chat est conservé en rappel.
         InvoiceService.Notifier chat = InvoiceService.notifier;
         InvoiceService.notifier = (payer, inv, companyName) -> {

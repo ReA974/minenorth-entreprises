@@ -102,3 +102,18 @@ servent avec `MineNorth.bank().payFromAccount(...)` pour payer depuis ce compte 
 **Tous droits réservés - MineNorthRP.** Réutilisation, copie, modification, décompilation / ingénierie
 inverse (y compris par outils d'intelligence artificielle) et utilisation pour entraîner une IA sont
 **interdites** sans autorisation écrite. Voir [LICENSE](LICENSE).
+
+## Distributeur automatique
+Bloc `minenorthentreprises:distributeur` (2 blocs de haut, onglet Outils du créatif, recette : fer, vitres, redstone, entonnoir).
+Ouvre 24 h/24, même commerce fermé : les ventes sont créditées **directement sur le compte de l'entreprise** (catégorie
+INCOME, « Distributeur : article »), à retrouver dans l'onglet TRANSACTIONS et à dépenser avec la carte entreprise.
+- **Pose** : patron ou gérant (grade « manage ») d'une entreprise **active** uniquement ; le distributeur est rattaché à
+  cette entreprise. Une entreprise dissoute ou en attente met ses distributeurs « hors service ».
+- **Client** (clic droit) : choisit un article puis « Acheter » ; un article par achat, payé par **carte bancaire**
+  (sa carte sur lui, solde suffisant), l'article va dans l'inventaire (sinon au sol). Le gérant voit la même vue.
+- **Gérant** (**Maj + clic droit**, même avec des objets en main) : 18 emplacements (3 × 6) qui se remplissent comme un
+  coffre (clic, Maj+clic). Cliquer sur le **prix** sous un emplacement, saisir le montant (jusqu'à 100 000 €, 0 = pas à
+  vendre) puis « Valider ». Les articles s'affichent sur les étagères du bloc.
+- **Casser** : gérants de l'entreprise et OP uniquement ; le stock tombe au sol.
+- Les prix et le stock sont enregistrés dans le bloc ; le serveur revérifie tout (droits, prix, solde, entreprise active).
+Le protocole réseau passe à la version 5 : mettre à jour client et serveur ensemble.

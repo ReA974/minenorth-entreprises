@@ -36,7 +36,7 @@ public final class ModNetwork {
             CANCEL_INVOICE = 24,    // n = id de la facture
             SET_OPEN = 25;          // n = 1 ouvrir, 0 fermer (patron ou grade « gérer »)
 
-    private static final String PROTOCOL = "4";
+    private static final String PROTOCOL = "5";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MineNorthEntreprises.MOD_ID, "network"), () -> PROTOCOL, PROTOCOL::equals, PROTOCOL::equals);
     private static int id = 0;
@@ -52,6 +52,12 @@ public final class ModNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
         CHANNEL.registerMessage(id++, InvoiceActionPacket.class, InvoiceActionPacket::encode, InvoiceActionPacket::decode, InvoiceActionPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(id++, VendingBuyPacket.class, VendingBuyPacket::encode, VendingBuyPacket::decode, VendingBuyPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(id++, VendingPricePacket.class, VendingPricePacket::encode, VendingPricePacket::decode, VendingPricePacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(id++, VendingResultPacket.class, VendingResultPacket::encode, VendingResultPacket::decode, VendingResultPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     /**
@@ -72,6 +78,38 @@ public final class ModNetwork {
 
     public static void send(ServerPlayer p, StatePacket s) { CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), s); }
     public static void send(ServerPlayer p, InvoicePacket s) { CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), s); }
+    public static void send(ServerPlayer p, VendingResultPacket s) { CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), s); }
+
+    /** Client → serveur : achat de l'article {@code slot} du distributeur dont le menu est ouvert (revérifié côté serveur). */
+    public record VendingBuyPacket(int slot) {
+        static void encode(VendingBuyPacket p, FriendlyByteBuf b) { b.writeVarInt(p.slot); }
+        static VendingBuyPacket decode(FriendlyByteBuf b) { return new VendingBuyPacket(b.readVarInt()); }
+        static void handle(VendingBuyPacket p, Supplier<NetworkEvent.Context> c) {
+            c.get().enqueueWork(() -> { ServerPlayer sp = c.get().getSender(); if (sp != null) fr.minenorth.entreprises.vending.VendingService.buy(sp, p.slot); });
+            c.get().setPacketHandled(true);
+        }
+    }
+
+    /** Client → serveur : prix (centimes) de l'emplacement {@code slot}, réservé au gérant qui a le menu ouvert. */
+    public record VendingPricePacket(int slot, int cents) {
+        static void encode(VendingPricePacket p, FriendlyByteBuf b) { b.writeVarInt(p.slot); b.writeInt(p.cents); }
+        static VendingPricePacket decode(FriendlyByteBuf b) { return new VendingPricePacket(b.readVarInt(), b.readInt()); }
+        static void handle(VendingPricePacket p, Supplier<NetworkEvent.Context> c) {
+            c.get().enqueueWork(() -> { ServerPlayer sp = c.get().getSender(); if (sp != null) fr.minenorth.entreprises.vending.VendingService.setPrice(sp, p.slot, p.cents); });
+            c.get().setPacketHandled(true);
+        }
+    }
+
+    /** Serveur → client : résultat d'un achat ou d'un changement de prix, affiché dans l'écran du distributeur. */
+    public record VendingResultPacket(boolean ok, String message) {
+        static void encode(VendingResultPacket p, FriendlyByteBuf b) { b.writeBoolean(p.ok); b.writeUtf(cut(p.message, 100), 100); }
+        static VendingResultPacket decode(FriendlyByteBuf b) { return new VendingResultPacket(b.readBoolean(), b.readUtf(100)); }
+        static void handle(VendingResultPacket p, Supplier<NetworkEvent.Context> c) {
+            c.get().enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
+                    () -> () -> fr.minenorth.entreprises.client.VendingScreen.result(p.ok, p.message)));
+            c.get().setPacketHandled(true);
+        }
+    }
 
     public record GradeView(String name, long salary, boolean manage) {
         static void encode(FriendlyByteBuf b, GradeView g) { b.writeUtf(g.name); b.writeLong(g.salary); b.writeBoolean(g.manage); }
