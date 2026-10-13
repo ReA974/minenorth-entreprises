@@ -77,6 +77,11 @@ public final class EntrepriseApi {
         return false;
     }
 
+    /** Ouvre le menu admin des entreprises (appelé par le panneau MineNorth Admin, par réflexion : ne pas changer le nom ni les paramètres). */
+    public static void openAdmin(ServerPlayer p) {
+        fr.minenorth.entreprises.EntrepriseService.openAdminFromPanel(p);
+    }
+
     /** Nom de l'entreprise active du joueur (patron ou employé), ou "" s'il n'en a pas. */
     public static String companyName(ServerPlayer p) {
         Company c = EntrepriseData.get(p.server).companyOf(p.getUUID());

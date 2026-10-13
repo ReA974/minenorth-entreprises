@@ -55,6 +55,14 @@ public final class EntrepriseService {
     public static void openFor(ServerPlayer p) { OPEN.add(p.getUUID()); send(p, false, "", true); }
     public static void openAdmin(ServerPlayer p) { ADMIN_FOCUS.remove(p.getUUID()); send(p, true, "", true); }
 
+    /** Joueurs du staff (panneau MineNorth Admin) autorisés à utiliser le menu admin sans être op 2 ; retirés à la fermeture / déconnexion. */
+    private static final Set<UUID> PANEL_ADMINS = new HashSet<>();
+
+    /** Appelé par le panneau admin après avoir vérifié sa propre permission. */
+    public static void openAdminFromPanel(ServerPlayer p) { PANEL_ADMINS.add(p.getUUID()); openAdmin(p); }
+
+    private static boolean isAdmin(ServerPlayer p) { return p.hasPermissions(2) || PANEL_ADMINS.contains(p.getUUID()); }
+
     /** Clic droit avec la tablette : réservée au PDG d'une entreprise active. */
     public static void openTablet(ServerPlayer p) {
         Company c = EntrepriseData.get(p.server).companyOf(p.getUUID());
@@ -238,9 +246,9 @@ public final class EntrepriseService {
 
     // ------------------------------------------------------------------ actions
     public static void handle(ServerPlayer p, ActionPacket k) {
-        if (k.action() == ModNetwork.CLOSE) { OPEN.remove(p.getUUID()); ADMIN_FOCUS.remove(p.getUUID()); return; }
+        if (k.action() == ModNetwork.CLOSE) { OPEN.remove(p.getUUID()); ADMIN_FOCUS.remove(p.getUUID()); PANEL_ADMINS.remove(p.getUUID()); return; }
         boolean admin = k.admin();
-        if (admin ? !p.hasPermissions(2) : !OPEN.contains(p.getUUID())) return;
+        if (admin ? !isAdmin(p) : !OPEN.contains(p.getUUID())) return;
         EntrepriseData d = EntrepriseData.get(p.server);
         Company before = admin ? d.get(k.companyId()) : d.companyOf(p.getUUID());
         R r;
@@ -630,6 +638,7 @@ public final class EntrepriseService {
     public static void logout(PlayerEvent.PlayerLoggedOutEvent e) {
         OPEN.remove(e.getEntity().getUUID());
         ADMIN_FOCUS.remove(e.getEntity().getUUID());
+        PANEL_ADMINS.remove(e.getEntity().getUUID());
         if (e.getEntity() instanceof ServerPlayer p) InvoiceService.onLogout(p);
     }
 
