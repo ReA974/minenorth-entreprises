@@ -117,3 +117,14 @@ INCOME, « Distributeur : article »), à retrouver dans l'onglet TRANSACTIONS e
 - **Casser** : gérants de l'entreprise et OP uniquement ; le stock tombe au sol.
 - Les prix et le stock sont enregistrés dans le bloc ; le serveur revérifie tout (droits, prix, solde, entreprise active).
 Le protocole réseau passe à la version 5 : mettre à jour client et serveur ensemble.
+
+## Cabine de peinture (entreprise de modification automobile)
+Bloc `cabine_peinture` (onglet créatif MineNorth, recette fer / dye bleu / diamant / redstone). Le service est rendu par le **personnel** de l'entreprise
+(patron, gérants **et employés**) sur le véhicule d'un client, qui est ensuite **facturé** avec le système de factures (onglet FACTURES) : la cabine ne prend
+aucun paiement.
+- **Pose et casse** : patron / gérants d'une entreprise **active** (et OP) ; la cabine est rattachée à l'entreprise du poseur. Les autres joueurs voient « Réservé au personnel ».
+- **Utilisation** : garer le véhicule (Immersive Vehicles) à **moins de 6 blocs** de la cabine, descendre du véhicule, clic droit sur la cabine, choisir une
+  peinture (les sous-définitions du modèle MTS), « Appliquer ».
+- Le véhicule est recréé à l'identique (pièces, carburant, dégâts, propriétaire, assurance) avec la nouvelle peinture ; si cela échoue, rien n'est modifié.
+- Réseau : protocole 7, serveur et clients ensemble. L'accès à MTS se fait par réflexion (Immersive Vehicles 24.0.0).
+- Le **banc de puissance** (diagnostic moteur et reprogrammation) est dans un mod séparé : `minenorth-banc`.

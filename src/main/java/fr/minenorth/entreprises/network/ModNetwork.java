@@ -38,7 +38,7 @@ public final class ModNetwork {
             SET_BALANCE = 26,       // admin : a = montant (€), b = "add" | "take" | "set" (ajuste le solde du compte de l'entreprise)
             LINK_BANK = 27;         // admin : relie / délie le capital de la banque (prêts) à cette entreprise (bascule)
 
-    private static final String PROTOCOL = "6";
+    private static final String PROTOCOL = "7";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MineNorthEntreprises.MOD_ID, "network"), () -> PROTOCOL, PROTOCOL::equals, PROTOCOL::equals);
     private static int id = 0;
@@ -60,6 +60,8 @@ public final class ModNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
         CHANNEL.registerMessage(id++, VendingResultPacket.class, VendingResultPacket::encode, VendingResultPacket::decode, VendingResultPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        fr.minenorth.entreprises.workshop.WorkshopPackets.register(id);
+        id += 2;
     }
 
     /**

@@ -2,5 +2,7 @@
   "item.minenorthentreprises.tablette_entreprise": "Tablette d'entreprise",
   "block.minenorthentreprises.distributeur": "Distributeur automatique",
   "item.minenorthentreprises.distributeur": "Distributeur automatique",
-  "itemGroup.minenorthentreprises": "Entreprises MineNorth"
+  "itemGroup.minenorthentreprises": "Entreprises MineNorth",
+  "block.minenorthentreprises.cabine_peinture": "Paint Booth",
+  "item.minenorthentreprises.cabine_peinture": "Paint Booth"
 }

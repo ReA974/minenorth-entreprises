@@ -19,8 +19,11 @@ public final class ModItems {
     public static final RegistryObject<Item> VENDING = ITEMS.register("distributeur",
             () -> new fr.minenorth.entreprises.vending.VendingItem(fr.minenorth.entreprises.vending.ModVending.VENDING.get(), new Item.Properties()));
 
+    public static final RegistryObject<Item> PAINT_BOOTH = ITEMS.register("cabine_peinture",
+            () -> new fr.minenorth.entreprises.workshop.WorkshopItem(fr.minenorth.entreprises.workshop.ModWorkshop.PAINT.get(), new Item.Properties()));
+
     public static final DeferredRegister<CreativeModeTab> TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MineNorthEntreprises.MOD_ID);
-    public static final net.minecraft.world.item.CreativeModeTab.DisplayItemsGenerator TAB_ITEMS = (params, out) -> { out.accept(TABLET.get()); out.accept(VENDING.get()); };
+    public static final net.minecraft.world.item.CreativeModeTab.DisplayItemsGenerator TAB_ITEMS = (params, out) -> { out.accept(TABLET.get()); out.accept(VENDING.get()); out.accept(PAINT_BOOTH.get()); };
 
     public static void register(IEventBus modBus) {
         ITEMS.register(modBus);

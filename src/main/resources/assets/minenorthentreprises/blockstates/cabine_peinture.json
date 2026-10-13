@@ -1,0 +1,20 @@
+{
+ "variants": {
+  "facing=south": {
+   "model": "minenorthentreprises:block/cabine_peinture",
+   "y": 0
+  },
+  "facing=west": {
+   "model": "minenorthentreprises:block/cabine_peinture",
+   "y": 90
+  },
+  "facing=north": {
+   "model": "minenorthentreprises:block/cabine_peinture",
+   "y": 180
+  },
+  "facing=east": {
+   "model": "minenorthentreprises:block/cabine_peinture",
+   "y": 270
+  }
+ }
+}
