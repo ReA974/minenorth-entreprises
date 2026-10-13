@@ -20,14 +20,9 @@ public final class ModItems {
             () -> new fr.minenorth.entreprises.vending.VendingItem(fr.minenorth.entreprises.vending.ModVending.VENDING.get(), new Item.Properties()));
 
     public static final DeferredRegister<CreativeModeTab> TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MineNorthEntreprises.MOD_ID);
-    public static final RegistryObject<CreativeModeTab> TAB = TABS.register("entreprises", () -> CreativeModeTab.builder()
-            .title(Component.translatable("itemGroup.minenorthentreprises"))
-            .icon(() -> new net.minecraft.world.item.ItemStack(TABLET.get()))
-            .displayItems((params, out) -> { out.accept(TABLET.get()); out.accept(VENDING.get()); })
-            .build());
+    public static final net.minecraft.world.item.CreativeModeTab.DisplayItemsGenerator TAB_ITEMS = (params, out) -> { out.accept(TABLET.get()); out.accept(VENDING.get()); };
 
     public static void register(IEventBus modBus) {
         ITEMS.register(modBus);
-        TABS.register(modBus);
     }
 }
