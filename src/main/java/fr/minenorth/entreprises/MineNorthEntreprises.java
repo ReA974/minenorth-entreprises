@@ -12,6 +12,7 @@ public class MineNorthEntreprises {
 
     public MineNorthEntreprises() {
         EntrepriseConfig.load();
+        fr.minenorth.api.MineNorth.provide(fr.minenorth.api.CompanyService.class, new fr.minenorth.entreprises.api.CompanyProvider());
         ModNetwork.register();
         var modBus = FMLJavaModLoadingContext.get().getModEventBus();
         fr.minenorth.entreprises.vending.ModVending.register(modBus);
