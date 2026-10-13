@@ -354,12 +354,23 @@ public class EntrepriseScreen extends Screen {
                 c.balance() > 0 ? MineNorthStyle.OK : MineNorthStyle.ALERT);
     }
 
-    /** Mode OP : solde et historique en lecture seule (aucune action bancaire depuis /entrepriseadmin). */
+    /**
+     * Mode OP : solde, ajustement du solde (ajouter / retirer / définir, tracé dans l'historique du compte), lien avec le capital
+     * de la banque, et historique. Le serveur vérifie le droit de modifier les soldes.
+     */
     private void buildAdminTransactions(CompanyView c, int x, int y0, int w) {
         balanceLine(c, x, y0 + 3);
-        label("Lecture seule • " + ModNetwork.TX_SENT + " dernières opérations", x + w - font.width("Lecture seule • "
-                + ModNetwork.TX_SENT + " dernières opérations"), y0 + 3, MineNorthStyle.MUTED);
-        txList(c.txs(), x, y0 + 20, w, ADMIN_TX_ROWS);
+        btn(x + w - 150, y0 - 2, 150, 16, "Capital de la banque", MineNorthStyle.CYAN,
+                () -> send(ModNetwork.LINK_BANK, c.id(), "", "", "", 0));
+        int yr = y0 + 18;
+        bAmount = box(x, yr, 96, "Montant €", kAmount);
+        btn(x + 102, yr - 1, 72, 20, "Ajouter", MineNorthStyle.GREEN,
+                () -> send(ModNetwork.SET_BALANCE, c.id(), bAmount.getValue(), "add", "", 0));
+        btn(x + 180, yr - 1, 72, 20, "Retirer", MineNorthStyle.PINK,
+                () -> send(ModNetwork.SET_BALANCE, c.id(), bAmount.getValue(), "take", "", 0));
+        btn(x + 258, yr - 1, 72, 20, "Définir", MineNorthStyle.DARK,
+                () -> send(ModNetwork.SET_BALANCE, c.id(), bAmount.getValue(), "set", "", 0));
+        txList(c.txs(), x, y0 + 44, w, ADMIN_TX_ROWS - 2);
     }
 
     /** Onglet TRANSACTIONS : solde, dépôt / virement / carte, historique paginé (le serveur valide tout). */

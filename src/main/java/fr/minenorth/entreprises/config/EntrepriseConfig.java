@@ -31,6 +31,13 @@ public final class EntrepriseConfig {
     public int salaire_intervalle_minutes = 60;
     /** Salaire maximum par paie pour un grade. */
     public double salaire_max_euros = 2000;
+    /**
+     * Entreprise « banque » : son compte sert de capital à la banque (prêts, mod EuroBank). Nom exact (sans tenir compte de la casse),
+     * ou numéro dans entreprise_banque_id (prioritaire s'il est >= 0). Vide = on ne touche pas au lien existant (commande /entreprisebanque).
+     * Appliqué au démarrage du serveur et à /entreprisereload ; l'entreprise doit être active.
+     */
+    public String entreprise_banque = "";
+    public int entreprise_banque_id = -1;
     public int max_employes = 20;
     public int max_grades = 6;
     /** Distance maximale (blocs, même dimension) entre l'émetteur et le client à la création d'une facture. */
@@ -62,6 +69,7 @@ public final class EntrepriseConfig {
         EntrepriseConfig c = current;
         if (c.activites_bloquees == null) c.activites_bloquees = new ArrayList<>();
         if (c.noms_bloques == null) c.noms_bloques = new ArrayList<>();
+        if (c.entreprise_banque == null) c.entreprise_banque = "";
         c.salaire_intervalle_minutes = Math.max(1, c.salaire_intervalle_minutes);
         c.max_employes = Math.max(1, c.max_employes);
         c.max_grades = Math.max(1, Math.min(6, c.max_grades));

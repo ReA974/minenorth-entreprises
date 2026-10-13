@@ -59,9 +59,21 @@ public final class EntrepriseService {
     private static final Set<UUID> PANEL_ADMINS = new HashSet<>();
 
     /** Appelé par le panneau admin après avoir vérifié sa propre permission. */
-    public static void openAdminFromPanel(ServerPlayer p) { PANEL_ADMINS.add(p.getUUID()); openAdmin(p); }
+    public static void openAdminFromPanel(ServerPlayer p) { openAdminFromPanel(p, false); }
+
+    /** Idem ; {@code bankEdit} : le membre du staff peut aussi modifier les soldes des comptes d'entreprise (droit « modifier la banque »). */
+    public static void openAdminFromPanel(ServerPlayer p, boolean bankEdit) {
+        PANEL_ADMINS.add(p.getUUID());
+        if (bankEdit) PANEL_BANKERS.add(p.getUUID()); else PANEL_BANKERS.remove(p.getUUID());
+        openAdmin(p);
+    }
+
+    /** Membres du staff (panneau) autorisés à modifier les soldes. Les OP 2 le peuvent toujours. */
+    private static final Set<UUID> PANEL_BANKERS = new HashSet<>();
 
     private static boolean isAdmin(ServerPlayer p) { return p.hasPermissions(2) || PANEL_ADMINS.contains(p.getUUID()); }
+
+    private static boolean canEditBalance(ServerPlayer p) { return p.hasPermissions(2) || PANEL_BANKERS.contains(p.getUUID()); }
 
     /** Clic droit avec la tablette : réservée au PDG d'une entreprise active. */
     public static void openTablet(ServerPlayer p) {
@@ -246,7 +258,7 @@ public final class EntrepriseService {
 
     // ------------------------------------------------------------------ actions
     public static void handle(ServerPlayer p, ActionPacket k) {
-        if (k.action() == ModNetwork.CLOSE) { OPEN.remove(p.getUUID()); ADMIN_FOCUS.remove(p.getUUID()); PANEL_ADMINS.remove(p.getUUID()); return; }
+        if (k.action() == ModNetwork.CLOSE) { OPEN.remove(p.getUUID()); ADMIN_FOCUS.remove(p.getUUID()); PANEL_ADMINS.remove(p.getUUID()); PANEL_BANKERS.remove(p.getUUID()); return; }
         boolean admin = k.admin();
         if (admin ? !isAdmin(p) : !OPEN.contains(p.getUUID())) return;
         EntrepriseData d = EntrepriseData.get(p.server);
@@ -350,6 +362,39 @@ public final class EntrepriseService {
                 String err = dep ? CompanyAccounts.deposit(p, c, cents) : CompanyAccounts.withdraw(p, c, cents);
                 if (err != null) return R.err(err);
                 return R.ok((dep ? "Dépôt de " : "Virement de ") + money(cents) + " effectué.");
+            }
+            case ModNetwork.SET_BALANCE: {
+                if (!admin) return null;
+                if (!canEditBalance(p)) return R.err("Tu n'as pas le droit de modifier les soldes.");
+                if (c.status != EntrepriseData.ACTIVE) return R.err("L'entreprise n'est pas encore validée.");
+                long cents = euros(k.a());
+                String mode = k.b();
+                if (cents < 0 || cents > 1_000_000_000_00L || (cents == 0 && !"set".equals(mode))) return R.err("Montant invalide.");
+                long before = MineNorth.bank().balance(s, c.accountId);
+                long delta = switch (mode) {
+                    case "add" -> cents;
+                    case "take" -> -cents;
+                    case "set" -> cents - before;
+                    default -> Long.MIN_VALUE;
+                };
+                if (delta == Long.MIN_VALUE) return R.err("Action inconnue.");
+                if (delta == 0) return R.ok("Le solde est déjà de " + money(before) + ".");
+                long after = MineNorth.bank().adjust(s, c.accountId, delta, "Ajustement par l'administration", MineNorth.displayName(p));
+                if (after < 0) return R.err("Compte de l'entreprise introuvable.");
+                LOGGER.info("[Entreprises] {} ajuste le solde de « {} » (id {}) : {} -> {}", p.getGameProfile().getName(), c.name, c.id, money(before), money(after));
+                return R.ok("Solde de « " + c.name + " » : " + money(before) + " → " + money(after) + ".");
+            }
+            case ModNetwork.LINK_BANK: {
+                if (!admin) return null;
+                if (!canEditBalance(p)) return R.err("Tu n'as pas le droit de modifier la banque.");
+                if (c.status != EntrepriseData.ACTIVE) return R.err("L'entreprise n'est pas encore validée.");
+                UUID linked = MineNorth.bank().bankCapitalAccount(s);
+                if (c.accountId.equals(linked)) {
+                    MineNorth.bank().linkBankCapital(s, null);
+                    return R.ok("Capital de la banque délié de « " + c.name + " » (il repart de zéro).");
+                }
+                if (!MineNorth.bank().linkBankCapital(s, c.accountId)) return R.err("Impossible : cette entreprise n'a pas de compte bancaire.");
+                return R.ok("« " + c.name + " » est maintenant la banque : son solde sert de capital pour les prêts.");
             }
             case ModNetwork.TRANSFER_PLAYER: {
                 if (admin) return null;

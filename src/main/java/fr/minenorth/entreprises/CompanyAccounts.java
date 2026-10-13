@@ -164,6 +164,28 @@ public final class CompanyAccounts {
         return MineNorth.bank().giveBusinessCard(p, c.accountId, c.name);
     }
 
+    /**
+     * Relie le capital de la banque à l'entreprise désignée dans la config (entreprise_banque / entreprise_banque_id).
+     * Rien n'est touché si la config est vide ; si l'entreprise est introuvable ou inactive, le lien existant est conservé.
+     */
+    public static void applyBankLink(MinecraftServer s) {
+        fr.minenorth.entreprises.config.EntrepriseConfig cfg = fr.minenorth.entreprises.config.EntrepriseConfig.get();
+        if (cfg.entreprise_banque_id < 0 && cfg.entreprise_banque.isBlank()) return;
+        BankService bank = MineNorth.bank();
+        if (bank == BankService.NONE) return;
+        Company target = null;
+        for (Company c : EntrepriseData.get(s).all()) {
+            if (cfg.entreprise_banque_id >= 0 ? c.id == cfg.entreprise_banque_id : c.name.equalsIgnoreCase(cfg.entreprise_banque.trim())) { target = c; break; }
+        }
+        if (target == null || target.status != EntrepriseData.ACTIVE) {
+            LOGGER.warn("[Entreprises] Entreprise banque « {} » (id {}) introuvable ou inactive : lien du capital inchangé.", cfg.entreprise_banque, cfg.entreprise_banque_id);
+            return;
+        }
+        if (target.accountId.equals(bank.bankCapitalAccount(s))) return;
+        if (bank.linkBankCapital(s, target.accountId)) LOGGER.info("[Entreprises] Capital de la banque relié à « {} » (config).", target.name);
+        else LOGGER.warn("[Entreprises] Impossible de relier le capital de la banque à « {} » (pas de compte bancaire).", target.name);
+    }
+
     /** Migration et resynchronisation : chaque société a son compte ouvert et ses signataires à jour. */
     @SubscribeEvent
     public static void onServerStarted(ServerStartedEvent e) {
@@ -172,5 +194,6 @@ public final class CompanyAccounts {
         for (Company c : EntrepriseData.get(s).all()) {
             if (open(s, c)) { syncSigners(s, c); syncListing(s, c); }
         }
+        applyBankLink(s);
     }
 }

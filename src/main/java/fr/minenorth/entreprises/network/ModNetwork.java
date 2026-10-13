@@ -34,9 +34,11 @@ public final class ModNetwork {
             VIEW_TX = 22,           // OP : companyId = entreprise ciblée (historique et factures) ; joueur : simple rafraîchissement
             CREATE_INVOICE = 23,    // a = UUID du client, b = montant (€), c = description (≤ 64)
             CANCEL_INVOICE = 24,    // n = id de la facture
-            SET_OPEN = 25;          // n = 1 ouvrir, 0 fermer (patron ou grade « gérer »)
+            SET_OPEN = 25,          // n = 1 ouvrir, 0 fermer (patron ou grade « gérer »)
+            SET_BALANCE = 26,       // admin : a = montant (€), b = "add" | "take" | "set" (ajuste le solde du compte de l'entreprise)
+            LINK_BANK = 27;         // admin : relie / délie le capital de la banque (prêts) à cette entreprise (bascule)
 
-    private static final String PROTOCOL = "5";
+    private static final String PROTOCOL = "6";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MineNorthEntreprises.MOD_ID, "network"), () -> PROTOCOL, PROTOCOL::equals, PROTOCOL::equals);
     private static int id = 0;

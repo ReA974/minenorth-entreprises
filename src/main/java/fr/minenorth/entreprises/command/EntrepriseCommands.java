@@ -74,6 +74,7 @@ public final class EntrepriseCommands {
                         })));
         d.register(Commands.literal("entreprisereload").requires(s -> s.hasPermission(2)).executes(c -> {
             boolean ok = EntrepriseConfig.load();
+            if (ok) fr.minenorth.entreprises.CompanyAccounts.applyBankLink(c.getSource().getServer());
             c.getSource().sendSystemMessage(Component.literal(ok ? "§aConfiguration des entreprises rechargée."
                     : "§cFichier minenorth_entreprises.json illisible : ancienne configuration conservée."));
             return ok ? 1 : 0;

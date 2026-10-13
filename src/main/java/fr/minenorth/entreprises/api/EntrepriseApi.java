@@ -82,6 +82,11 @@ public final class EntrepriseApi {
         fr.minenorth.entreprises.EntrepriseService.openAdminFromPanel(p);
     }
 
+    /** Idem, avec le droit de modifier les soldes des comptes d'entreprise (par réflexion : ne pas changer le nom ni les paramètres). */
+    public static void openAdmin(ServerPlayer p, boolean bankEdit) {
+        fr.minenorth.entreprises.EntrepriseService.openAdminFromPanel(p, bankEdit);
+    }
+
     /** Nom de l'entreprise active du joueur (patron ou employé), ou "" s'il n'en a pas. */
     public static String companyName(ServerPlayer p) {
         Company c = EntrepriseData.get(p.server).companyOf(p.getUUID());
