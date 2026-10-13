@@ -32,6 +32,21 @@ public final class CompanyProvider implements CompanyService {
     }
 
     @Override
+    public boolean isOpen(MinecraftServer s, int id) {
+        return EntrepriseApi.isOpen(s, id);
+    }
+
+    @Override
+    public List<java.util.UUID> memberIds(MinecraftServer s, int id) {
+        Company c = EntrepriseData.get(s).get(id);
+        List<java.util.UUID> out = new java.util.ArrayList<>();
+        if (c == null) return out;
+        if (c.owner != null) out.add(c.owner);
+        for (java.util.UUID m : c.members.keySet()) if (!out.contains(m)) out.add(m);
+        return out;
+    }
+
+    @Override
     public boolean isMember(ServerPlayer p, int id, boolean directionOnly) {
         Company c = EntrepriseData.get(p.server).get(id);
         if (c == null || c.status != EntrepriseData.ACTIVE) return false;
