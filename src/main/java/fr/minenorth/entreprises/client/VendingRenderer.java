@@ -14,7 +14,7 @@ import net.minecraft.world.item.ItemStack;
 
 /** Dessine les articles en stock sur les trois étagères du distributeur (6 colonnes, comme les emplacements du menu). */
 public class VendingRenderer implements BlockEntityRenderer<VendingMachineBE> {
-    private static final float COL0 = 1.5f, COL_W = 10f / 6f, SCALE = 0.1f, FRONT_Z = 13.5f;
+    private static final float COL0 = 1.5f, COL_W = 10f / 6f, SCALE = 0.22f, FRONT_Z = 13.5f;   // objets de ~3,5 px sur des colonnes de 1,7 px : ils se chevauchent un peu, comme sur une vraie étagère
     /** Hauteur (en pixels de modèle) du centre de chaque étagère, de la plus haute à la plus basse. */
     private static final float[] ROW_Y = {27.5f, 21.5f, 15.5f};
 
@@ -32,7 +32,7 @@ public class VendingRenderer implements BlockEntityRenderer<VendingMachineBE> {
             ItemStack st = be.inv.getItem(i);
             if (st.isEmpty()) continue;
             pose.pushPose();
-            pose.translate((COL0 + ((i % 6) + 0.5f) * COL_W) / 16f, ROW_Y[i / 6] / 16f, FRONT_Z / 16f);
+            pose.translate((COL0 + ((i % 6) + 0.5f) * COL_W) / 16f, ROW_Y[i / 6] / 16f, (FRONT_Z + (i % 2) * 0.25f) / 16f);   // une colonne sur deux un peu devant : pas de scintillement
             pose.scale(SCALE, SCALE, 0.02f);
             Minecraft.getInstance().getItemRenderer().renderStatic(st, ItemDisplayContext.FIXED, light, OverlayTexture.NO_OVERLAY,
                     pose, buffers, be.getLevel(), (int) be.getBlockPos().asLong() + i);
