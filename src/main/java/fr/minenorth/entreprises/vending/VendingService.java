@@ -27,6 +27,62 @@ import net.minecraftforge.fml.common.Mod;
 public final class VendingService {
     private VendingService() {}
 
+    // ------------------------------------------------------------------ bruitages (sons Minecraft combinés, à retardement)
+
+    public enum Sfx { OPEN, PAID, ERROR }
+
+    private record Later(int[] ticks, Runnable run) {}
+    private static final java.util.List<Later> LATER = new java.util.ArrayList<>();
+
+    private static void later(int ticks, Runnable r) { synchronized (LATER) { LATER.add(new Later(new int[]{ticks}, r)); } }
+
+    @SubscribeEvent
+    public static void onTick(net.minecraftforge.event.TickEvent.ServerTickEvent e) {
+        if (e.phase != net.minecraftforge.event.TickEvent.Phase.END) return;
+        java.util.List<Runnable> due = new java.util.ArrayList<>();
+        synchronized (LATER) {
+            for (java.util.Iterator<Later> it = LATER.iterator(); it.hasNext(); ) {
+                Later l = it.next();
+                if (--l.ticks[0] <= 0) { due.add(l.run); it.remove(); }
+            }
+        }
+        due.forEach(Runnable::run);
+    }
+
+    private static void play(net.minecraft.world.level.Level level, BlockPos pos, net.minecraft.sounds.SoundEvent s, float vol, float pitch) {
+        level.playSound(null, pos, s, net.minecraft.sounds.SoundSource.BLOCKS, vol, pitch);
+    }
+
+    /** Bruit de la machine : ouverture (bip du lecteur), erreur (buzzer grave), achat (bip, moteur, chute, ding ; la machine à café fait couler le café). */
+    public static void sound(net.minecraft.world.level.Level level, BlockPos pos, Sfx what, String kind) {
+        if (level.isClientSide) return;
+        switch (what) {
+            case OPEN -> play(level, pos, net.minecraft.sounds.SoundEvents.NOTE_BLOCK_BIT.value(), 0.6f, 1.6f);
+            case ERROR -> {
+                play(level, pos, net.minecraft.sounds.SoundEvents.NOTE_BLOCK_BASS.value(), 0.8f, 0.6f);
+                later(4, () -> play(level, pos, net.minecraft.sounds.SoundEvents.NOTE_BLOCK_BASS.value(), 0.8f, 0.5f));
+            }
+            case PAID -> {
+                play(level, pos, net.minecraft.sounds.SoundEvents.NOTE_BLOCK_BIT.value(), 0.7f, 1.9f);               // carte acceptée
+                later(5, () -> play(level, pos, net.minecraft.sounds.SoundEvents.NOTE_BLOCK_BIT.value(), 0.7f, 2.0f));
+                if (kind.equals("cafe")) {
+                    later(10, () -> play(level, pos, net.minecraft.sounds.SoundEvents.BREWING_STAND_BREW, 0.7f, 0.9f));   // mouture
+                    later(24, () -> play(level, pos, net.minecraft.sounds.SoundEvents.BUCKET_EMPTY, 0.35f, 1.7f));         // le café coule
+                    later(34, () -> play(level, pos, net.minecraft.sounds.SoundEvents.FIRE_EXTINGUISH, 0.35f, 1.6f));      // vapeur
+                } else {
+                    later(10, () -> play(level, pos, net.minecraft.sounds.SoundEvents.PISTON_EXTEND, 0.35f, 1.8f));        // le moteur tourne
+                    later(16, () -> play(level, pos, net.minecraft.sounds.SoundEvents.PISTON_CONTRACT, 0.35f, 1.9f));
+                    later(22, () -> play(level, pos, net.minecraft.sounds.SoundEvents.BARREL_CLOSE, 0.7f, 0.8f));          // l'article tombe dans le bac
+                }
+                later(kind.equals("cafe") ? 40 : 26, () -> play(level, pos, net.minecraft.sounds.SoundEvents.NOTE_BLOCK_CHIME.value(), 0.7f, 1.3f));   // ding
+            }
+        }
+    }
+
+    private static void error(ServerPlayer p, VendingMachineBE be) {
+        if (be.getBlockState().getBlock() instanceof VendingMachineBlock vb) sound(p.level(), be.getBlockPos(), Sfx.ERROR, vb.kind);
+    }
+
     /** Entreprise active dont le joueur est patron ou gérant (celle qui peut poser un distributeur), sinon null. */
     public static Company companyFor(ServerPlayer p) {
         Company c = EntrepriseData.get(p.server).companyOf(p.getUUID());
@@ -56,20 +112,21 @@ public final class VendingService {
         VendingMachineBE be = m.machine(p.level());
         if (be == null || slot < 0 || slot >= VendingMachineBE.SLOTS) return;
         Company c = company(p.server, be);
-        if (c == null) { reply(p, false, "Distributeur hors service."); return; }
+        if (c == null) { reply(p, false, "Distributeur hors service."); error(p, be); return; }
         ItemStack st = be.inv.getItem(slot);
         int price = be.price(slot);
-        if (st.isEmpty()) { reply(p, false, "Emplacement vide."); return; }
-        if (price <= 0) { reply(p, false, "Cet article n'est pas à vendre."); return; }
+        if (st.isEmpty()) { reply(p, false, "Emplacement vide."); error(p, be); return; }
+        if (price <= 0) { reply(p, false, "Cet article n'est pas à vendre."); error(p, be); return; }
         BankService bank = MineNorth.bank();
         PayResult r = bank.check(p, price);
-        if (!r.ok()) { reply(p, false, r.message()); return; }
+        if (!r.ok()) { reply(p, false, r.message()); error(p, be); return; }
         String name = st.getHoverName().getString();
         r = bank.transfer(p.server, p.getUUID(), c.accountId, price, BankTx.INCOME, "Distributeur : " + name, MineNorth.displayName(p));
-        if (!r.ok()) { reply(p, false, r.message()); return; }
+        if (!r.ok()) { reply(p, false, r.message()); error(p, be); return; }
         ItemStack one = be.inv.removeItem(slot, 1);
         if (!p.getInventory().add(one)) p.drop(one, false);
         reply(p, true, name + " acheté.");
+        if (be.getBlockState().getBlock() instanceof VendingMachineBlock vb) sound(p.level(), be.getBlockPos(), Sfx.PAID, vb.kind);
     }
 
     /** Le gérant fixe le prix (en centimes, 0 = pas à vendre) d'un emplacement du distributeur dont il a le menu ouvert. */

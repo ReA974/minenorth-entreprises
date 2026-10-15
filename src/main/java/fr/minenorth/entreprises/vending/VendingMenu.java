@@ -101,6 +101,7 @@ public class VendingMenu extends AbstractContainerMenu {
 
     @Override
     public boolean stillValid(Player player) {
-        return stillValid(access, player, ModVending.VENDING.get());
+        return access.evaluate((l, p) -> l.getBlockState(p).getBlock() instanceof VendingMachineBlock
+                && player.distanceToSqr(p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5) <= 64.0, true);
     }
 }

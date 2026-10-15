@@ -43,8 +43,12 @@ public class VendingMachineBlock extends Block implements EntityBlock {
     public static final EnumProperty<DoubleBlockHalf> HALF = BlockStateProperties.DOUBLE_BLOCK_HALF;
     private static final VoxelShape SHAPE = Block.box(0, 0, 0, 16, 16, 16);
 
-    public VendingMachineBlock() {
+    /** Genre de machine (classique, boissons, snacks, cafe, mixte, toutenun) : façade et bruits. */
+    public final String kind;
+
+    public VendingMachineBlock(String kind) {
         super(BlockBehaviour.Properties.of().strength(3.0f, 6.0f).sound(SoundType.METAL).noOcclusion().pushReaction(PushReaction.BLOCK));
+        this.kind = kind;
         registerDefaultState(stateDefinition.any().setValue(FACING, Direction.NORTH).setValue(HALF, DoubleBlockHalf.LOWER));
     }
 
@@ -111,6 +115,7 @@ public class VendingMachineBlock extends Block implements EntityBlock {
                 return InteractionResult.CONSUME;
             }
             // Clic droit normal : vue client (achat) pour tout le monde. Accroupi, le gérant accède au stock et aux prix.
+            VendingService.sound(level, pos, VendingService.Sfx.OPEN, kind);
             boolean manager = VendingService.canManage(sp, be) && sp.isShiftKeyDown();
             final BlockPos fpos = pos;
             final String name = c.name;

@@ -1,0 +1,28 @@
+{
+ "type": "minecraft:block",
+ "pools": [
+  {
+   "rolls": 1,
+   "entries": [
+    {
+     "type": "minecraft:item",
+     "name": "minenorthentreprises:distributeur_boissons",
+     "conditions": [
+      {
+       "condition": "minecraft:block_state_property",
+       "block": "minenorthentreprises:distributeur_boissons",
+       "properties": {
+        "half": "lower"
+       }
+      }
+     ]
+    }
+   ],
+   "conditions": [
+    {
+     "condition": "minecraft:survives_explosion"
+    }
+   ]
+  }
+ ]
+}

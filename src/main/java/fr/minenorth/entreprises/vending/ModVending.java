@@ -19,9 +19,21 @@ public final class ModVending {
             DeferredRegister.create(ForgeRegistries.BLOCK_ENTITY_TYPES, MineNorthEntreprises.MOD_ID);
     public static final DeferredRegister<MenuType<?>> MENUS = DeferredRegister.create(ForgeRegistries.MENU_TYPES, MineNorthEntreprises.MOD_ID);
 
-    public static final RegistryObject<Block> VENDING = BLOCKS.register("distributeur", VendingMachineBlock::new);
+    /** Variantes visuelles (même fonctionnement, autre façade et autres bruits) : boissons, snacks, café, mixte, tout-en-un. */
+    public static final String[] KINDS = {"boissons", "snacks", "cafe", "mixte", "toutenun"};
+
+    public static final RegistryObject<Block> VENDING = BLOCKS.register("distributeur", () -> new VendingMachineBlock("classique"));
+    public static final java.util.Map<String, RegistryObject<Block>> VARIANTS = new java.util.LinkedHashMap<>();
+    static {
+        for (String k : KINDS) VARIANTS.put(k, BLOCKS.register("distributeur_" + k, () -> new VendingMachineBlock(k)));
+    }
     public static final RegistryObject<BlockEntityType<VendingMachineBE>> VENDING_BE = BLOCK_ENTITIES.register("distributeur",
-            () -> BlockEntityType.Builder.of(VendingMachineBE::new, VENDING.get()).build(null));
+            () -> {
+                java.util.List<Block> all = new java.util.ArrayList<>();
+                all.add(VENDING.get());
+                for (RegistryObject<Block> v : VARIANTS.values()) all.add(v.get());
+                return BlockEntityType.Builder.of(VendingMachineBE::new, all.toArray(new Block[0])).build(null);
+            });
     public static final RegistryObject<MenuType<VendingMenu>> VENDING_MENU = MENUS.register("distributeur",
             () -> IForgeMenuType.create(VendingMenu::new));
 

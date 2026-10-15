@@ -4,5 +4,15 @@
   "item.minenorthentreprises.distributeur": "Distributeur automatique",
   "itemGroup.minenorthentreprises": "Entreprises MineNorth",
   "block.minenorthentreprises.cabine_peinture": "Cabine de peinture",
-  "item.minenorthentreprises.cabine_peinture": "Cabine de peinture"
+  "item.minenorthentreprises.cabine_peinture": "Cabine de peinture",
+  "block.minenorthentreprises.distributeur_boissons": "Distributeur de boissons",
+  "item.minenorthentreprises.distributeur_boissons": "Distributeur de boissons",
+  "block.minenorthentreprises.distributeur_snacks": "Distributeur de snacks",
+  "item.minenorthentreprises.distributeur_snacks": "Distributeur de snacks",
+  "block.minenorthentreprises.distributeur_cafe": "Machine à café",
+  "item.minenorthentreprises.distributeur_cafe": "Machine à café",
+  "block.minenorthentreprises.distributeur_mixte": "Distributeur mixte",
+  "item.minenorthentreprises.distributeur_mixte": "Distributeur mixte",
+  "block.minenorthentreprises.distributeur_toutenun": "Distributeur tout-en-un",
+  "item.minenorthentreprises.distributeur_toutenun": "Distributeur tout-en-un"
 }
