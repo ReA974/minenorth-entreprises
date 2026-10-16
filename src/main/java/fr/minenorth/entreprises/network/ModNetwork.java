@@ -38,7 +38,7 @@ public final class ModNetwork {
             SET_BALANCE = 26,       // admin : a = montant (€), b = "add" | "take" | "set" (ajuste le solde du compte de l'entreprise)
             LINK_BANK = 27;         // admin : relie / délie le capital de la banque (prêts) à cette entreprise (bascule)
 
-    private static final String PROTOCOL = "7";
+    private static final String PROTOCOL = "8";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MineNorthEntreprises.MOD_ID, "network"), () -> PROTOCOL, PROTOCOL::equals, PROTOCOL::equals);
     private static int id = 0;
@@ -62,6 +62,55 @@ public final class ModNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT));
         fr.minenorth.entreprises.workshop.WorkshopPackets.register(id);
         id += 2;
+        CHANNEL.registerMessage(id++, MenuOpenPacket.class, MenuOpenPacket::encode, MenuOpenPacket::decode, MenuOpenPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+        CHANNEL.registerMessage(id++, MenuSavePacket.class, MenuSavePacket::encode, MenuSavePacket::decode, MenuSavePacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+    }
+
+    /** Serveur → client : ouvre la carte de restaurant tenue en main (lecture, ou édition si le serveur l'autorise). */
+    public record MenuOpenPacket(boolean mainHand, boolean edit) {
+        static void encode(MenuOpenPacket p, FriendlyByteBuf b) { b.writeBoolean(p.mainHand); b.writeBoolean(p.edit); }
+        static MenuOpenPacket decode(FriendlyByteBuf b) { return new MenuOpenPacket(b.readBoolean(), b.readBoolean()); }
+        static void handle(MenuOpenPacket p, Supplier<NetworkEvent.Context> c) {
+            c.get().enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
+                    () -> () -> fr.minenorth.entreprises.client.RestaurantMenuClient.open(p.mainHand, p.edit)));
+            c.get().setPacketHandled(true);
+        }
+    }
+
+    /** Client → serveur : nouveau contenu de la carte tenue en main. Autorisation et assainissement côté serveur. */
+    public record MenuSavePacket(boolean mainHand, String title, String sub, int theme,
+                                 List<fr.minenorth.entreprises.item.RestaurantMenuItem.Dish> dishes) {
+        private static final int MAXD = fr.minenorth.entreprises.item.RestaurantMenuItem.MAX_DISHES;
+        static void encode(MenuSavePacket p, FriendlyByteBuf b) {
+            b.writeBoolean(p.mainHand); b.writeUtf(cut(p.title, 64), 64); b.writeUtf(cut(p.sub, 64), 64); b.writeVarInt(p.theme);
+            b.writeVarInt(Math.min(p.dishes.size(), MAXD));
+            for (int i = 0; i < p.dishes.size() && i < MAXD; i++) {
+                var d = p.dishes.get(i);
+                b.writeUtf(cut(d.name(), 64), 64); b.writeUtf(cut(d.desc(), 200), 200);
+                b.writeUtf(cut(d.price(), 32), 32); b.writeUtf(cut(d.image(), 100), 100);
+            }
+        }
+        static MenuSavePacket decode(FriendlyByteBuf b) {
+            boolean hand = b.readBoolean();
+            String title = b.readUtf(64), sub = b.readUtf(64);
+            int theme = b.readVarInt();
+            int n = b.readVarInt();
+            if (n < 0 || n > MAXD) throw new DecoderException("Trop de plats : " + n);
+            List<fr.minenorth.entreprises.item.RestaurantMenuItem.Dish> dishes = new ArrayList<>(n);
+            for (int i = 0; i < n; i++)
+                dishes.add(new fr.minenorth.entreprises.item.RestaurantMenuItem.Dish(b.readUtf(64), b.readUtf(200), b.readUtf(32), b.readUtf(100)));
+            return new MenuSavePacket(hand, title, sub, theme, dishes);
+        }
+        static void handle(MenuSavePacket p, Supplier<NetworkEvent.Context> c) {
+            c.get().enqueueWork(() -> {
+                ServerPlayer sp = c.get().getSender();
+                if (sp != null) fr.minenorth.entreprises.item.RestaurantMenuItem.save(sp, p.mainHand,
+                        new fr.minenorth.entreprises.item.RestaurantMenuItem.Data(p.title, p.sub, p.theme, -1, p.dishes));
+            });
+            c.get().setPacketHandled(true);
+        }
     }
 
     /**

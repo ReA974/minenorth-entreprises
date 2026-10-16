@@ -52,6 +52,16 @@ Onglets : INFOS, EMPLOYÉS, GRADES (PDG), puis TRANSACTIONS et FACTURES (PDG et 
 Onglet **TRANSACTIONS** : solde, boutons Déposer, Virer vers mon compte, Virer à un joueur et Obtenir ma carte
 entreprise, puis historique paginé.
 
+## Carte de restaurant
+Objet `minenorthentreprises:carte_restaurant` (recette : papier + sac d'encre, ou onglet créatif MineNorth). Un menu papier
+que l'on peut donner, jeter ou copier : tout le contenu est dans l'objet.
+- **Clic droit** : lecture. Image du plat à gauche, nom et prix à droite, description dessous ; molette ou `<` `>` pour changer de page (4 plats par page).
+- **Accroupi + clic droit** : édition, réservée au PDG et aux grades avec droit de gestion d'une entreprise active (et aux OP).
+  Titre (32), sous-titre (48), papier (Crème, Bistrot, Rose, Bleu) et jusqu'à 12 plats : nom (32), prix (16, texte libre), description (120),
+  image = identifiant d'objet (`minecraft:cooked_beef`, ou tout objet d'un autre mod) ou bouton « Objet en main » (objet tenu dans l'autre main).
+- La première sauvegarde signe la carte au nom de l'entreprise : ensuite seule cette entreprise (ou un OP) peut la modifier.
+- Le serveur revérifie le droit d'édition et assainit les textes (pas de codes `§`, longueurs bornées, identifiants d'objet validés).
+
 ## Virement vers un joueur
 Dans l'onglet TRANSACTIONS : montant, destinataire par son **nom RP** (« Prénom Nom », sans tenir compte de la casse,
 jamais par pseudo) et motif facultatif (64 caractères au plus). Le destinataire doit avoir une carte d'identité et un
