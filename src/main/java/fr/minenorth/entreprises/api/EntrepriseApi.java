@@ -39,6 +39,17 @@ public final class EntrepriseApi {
         return c == null ? null : c.accountId;
     }
 
+    /** Vrai si l'entreprise existe et est active (faux : supprimée ou fermée). */
+    public static boolean isActive(MinecraftServer s, int id) {
+        return active(s, id) != null;
+    }
+
+    /** UUID du patron de l'entreprise active, ou null si elle n'existe pas ou n'est plus active. */
+    public static java.util.UUID ownerOf(MinecraftServer s, int id) {
+        Company c = active(s, id);
+        return c == null ? null : c.owner;
+    }
+
     /** Noms des grades, du plus haut (index 0) au plus bas. */
     public static List<String> gradeNames(MinecraftServer s, int id) {
         List<String> out = new ArrayList<>();
