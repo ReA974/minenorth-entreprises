@@ -77,33 +77,4 @@ public final class RestaurantMenuClient {
         }
         return out;
     }
-
-    /**
-     * Retour à la ligne par mots dans {@code width} pixels (gras ou non) : un mot trop long est coupé, rien n'est raccourci par « … »
-     * sauf si le texte dépasse {@code max} lignes (cas extrême).
-     */
-    public static List<String> lines(Font font, String text, int width, boolean bold, int max) {
-        java.util.function.ToIntFunction<String> w = x -> bold ? font.width(MineNorthStyle.bold(x)) : font.width(x);
-        List<String> out = new ArrayList<>();
-        StringBuilder cur = new StringBuilder();
-        for (String word : (text == null ? "" : text.trim()).split("\\s+")) {
-            if (word.isEmpty()) continue;
-            while (w.applyAsInt(word) > width && word.length() > 1) {   // mot plus large qu'une ligne : on le coupe
-                String head = word;
-                while (head.length() > 1 && w.applyAsInt(head) > width) head = head.substring(0, head.length() - 1);
-                if (cur.length() > 0) { out.add(cur.toString()); cur.setLength(0); }
-                out.add(head);
-                word = word.substring(head.length());
-            }
-            String trial = cur.length() == 0 ? word : cur + " " + word;
-            if (cur.length() > 0 && w.applyAsInt(trial) > width) { out.add(cur.toString()); cur.setLength(0); cur.append(word); }
-            else { cur.setLength(0); cur.append(trial); }
-        }
-        if (cur.length() > 0) out.add(cur.toString());
-        if (out.size() > max) {
-            out = new ArrayList<>(out.subList(0, max));
-            out.set(max - 1, fit(font, out.get(max - 1) + "…", width, bold));
-        }
-        return out;
-    }
 }
