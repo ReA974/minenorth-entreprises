@@ -10,7 +10,7 @@ import java.util.List;
 
 /** Lecture de la carte : une feuille de papier, image du plat à gauche, nom + prix, description dessous. */
 public class RestaurantMenuScreen extends Screen {
-    private static final int W = 250, H = 236, PER_PAGE = 4, ROW_H = 40, HEAD_H = 54;
+    private static final int W = 250, H = 250, ROW_H = 36, HEAD_H = 70;
 
     private final RestaurantMenuItem.Data data;
     private final int[] theme;
@@ -23,7 +23,7 @@ public class RestaurantMenuScreen extends Screen {
         this.theme = RestaurantMenuClient.THEMES[data.theme()];
     }
 
-    private int pages() { return Math.max(1, (data.dishes().size() + PER_PAGE - 1) / PER_PAGE); }
+    private int pages() { return Math.max(1, data.pages().size()); }
 
     @Override
     protected void init() {
@@ -64,28 +64,38 @@ public class RestaurantMenuScreen extends Screen {
         }
         g.fill(left + 30, top + 43, left + W - 30, top + 44, accent);
 
-        List<RestaurantMenuItem.Dish> dishes = data.dishes();
-        if (dishes.isEmpty()) {
+        if (data.pages().isEmpty()) {
             String empty = "La carte est vide.";
             g.drawString(font, empty, left + (W - font.width(empty)) / 2, top + 110, ink, false);
-        }
-        int first = page * PER_PAGE;
-        for (int i = 0; i < PER_PAGE && first + i < dishes.size(); i++) {
-            RestaurantMenuItem.Dish d = dishes.get(first + i);
-            int y = top + HEAD_H + i * ROW_H;
-            // Image du plat (à gauche), sur une pastille.
-            g.fill(left + 12, y, left + 44, y + 32, border);
-            g.fill(left + 13, y + 1, left + 43, y + 31, paper);
-            ItemStack st = RestaurantMenuClient.stack(d.image());
-            if (!st.isEmpty()) MineNorthStyle.item(g, st, left + 14, y + 2, 1.75f);
-            int tx = left + 52, tr = left + W - 12;
-            String price = RestaurantMenuClient.fit(font, RestaurantMenuClient.price(d.price()), 90, true);
-            int pw = price.isEmpty() ? 0 : font.width(MineNorthStyle.bold(price)) + 8;
-            g.drawString(font, MineNorthStyle.bold(RestaurantMenuClient.fit(font, d.name(), tr - tx - pw, true)), tx, y + 1, ink, false);
-            if (!price.isEmpty()) g.drawString(font, MineNorthStyle.bold(price), tr - font.width(MineNorthStyle.bold(price)), y + 1, accent, false);
-            g.fill(tx, y + 12, tr, y + 13, border);
-            List<String> lines = RestaurantMenuClient.wrap(font, d.desc(), tr - tx, 2);
-            for (int l = 0; l < lines.size(); l++) g.drawString(font, lines.get(l), tx, y + 16 + l * 10, ink, false);
+        } else {
+            RestaurantMenuItem.Page pg = data.pages().get(page);
+            // Sous-titre de la page (section) : texte d'accent entouré de filets.
+            if (!pg.sub().isBlank()) {
+                String sec = RestaurantMenuClient.fit(font, pg.sub(), W - 80, true);
+                int sw = font.width(MineNorthStyle.bold(sec));
+                int sx = left + (W - sw) / 2;
+                g.drawString(font, MineNorthStyle.bold(sec), sx, top + 50, accent, false);
+                g.fill(left + 14, top + 54, sx - 6, top + 55, border);
+                g.fill(sx + sw + 6, top + 54, left + W - 14, top + 55, border);
+            }
+            List<RestaurantMenuItem.Dish> dishes = pg.dishes();
+            for (int i = 0; i < dishes.size(); i++) {
+                RestaurantMenuItem.Dish d = dishes.get(i);
+                int y = top + HEAD_H + i * ROW_H;
+                // Image du plat (à gauche), sur une pastille.
+                g.fill(left + 12, y, left + 44, y + 32, border);
+                g.fill(left + 13, y + 1, left + 43, y + 31, paper);
+                ItemStack st = RestaurantMenuClient.stack(d.image());
+                if (!st.isEmpty()) MineNorthStyle.item(g, st, left + 14, y + 2, 1.75f);
+                int tx = left + 52, tr = left + W - 12;
+                String price = RestaurantMenuClient.fit(font, RestaurantMenuClient.price(d.price()), 90, true);
+                int pw = price.isEmpty() ? 0 : font.width(MineNorthStyle.bold(price)) + 8;
+                g.drawString(font, MineNorthStyle.bold(RestaurantMenuClient.fit(font, d.name(), tr - tx - pw, true)), tx, y + 1, ink, false);
+                if (!price.isEmpty()) g.drawString(font, MineNorthStyle.bold(price), tr - font.width(MineNorthStyle.bold(price)), y + 1, accent, false);
+                g.fill(tx, y + 12, tr, y + 13, border);
+                List<String> lines = RestaurantMenuClient.wrap(font, d.desc(), tr - tx, 2);
+                for (int l = 0; l < lines.size(); l++) g.drawString(font, lines.get(l), tx, y + 16 + l * 10, ink, false);
+            }
         }
         if (pages() > 1) {
             String p = (page + 1) + " / " + pages();

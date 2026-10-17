@@ -27,16 +27,28 @@ import java.util.List;
  * tout à l'enregistrement et assainit les textes.
  */
 public class RestaurantMenuItem extends Item {
-    public static final int MAX_DISHES = 12, MAX_TITLE = 32, MAX_SUB = 48, MAX_NAME = 32, MAX_DESC = 120, MAX_PRICE = 16, MAX_IMG = 64;
+    public static final int MAX_PAGES = 8, PER_PAGE = 4, MAX_TITLE = 32, MAX_SUB = 48, MAX_NAME = 32, MAX_DESC = 120, MAX_PRICE = 16, MAX_IMG = 64;
     public static final int THEMES = 4;
     private static final String TAG = "Menu";
 
     public RestaurantMenuItem() { super(new Item.Properties().stacksTo(1)); }
 
     public record Dish(String name, String desc, String price, String image) {}
-    /** company = entreprise qui a rédigé la carte (-1 : aucune). */
-    public record Data(String title, String sub, int theme, int company, List<Dish> dishes) {
+    /** Une page de la carte : son sous-titre (« Entrées », « Desserts »…) et jusqu'à {@link #PER_PAGE} plats. */
+    public record Page(String sub, List<Dish> dishes) {}
+    /** company = entreprise qui a rédigé la carte (-1 : aucune) ; sub = sous-titre général sous le titre. */
+    public record Data(String title, String sub, int theme, int company, List<Page> pages) {
         public static Data empty() { return new Data("", "", 0, -1, new ArrayList<>()); }
+    }
+
+    private static Dish readDish(CompoundTag d) {
+        return new Dish(d.getString("n"), d.getString("d"), d.getString("p"), d.getString("i"));
+    }
+
+    private static CompoundTag writeDish(Dish x) {
+        CompoundTag c = new CompoundTag();
+        c.putString("n", x.name()); c.putString("d", x.desc()); c.putString("p", x.price()); c.putString("i", x.image());
+        return c;
     }
 
     // ------------------------------------------------------------------ NBT
@@ -44,26 +56,43 @@ public class RestaurantMenuItem extends Item {
         CompoundTag root = st.getTag();
         if (root == null || !root.contains(TAG, Tag.TAG_COMPOUND)) return Data.empty();
         CompoundTag t = root.getCompound(TAG);
-        List<Dish> dishes = new ArrayList<>();
-        ListTag list = t.getList("dishes", Tag.TAG_COMPOUND);
-        for (int i = 0; i < list.size() && i < MAX_DISHES; i++) {
-            CompoundTag d = list.getCompound(i);
-            dishes.add(new Dish(d.getString("n"), d.getString("d"), d.getString("p"), d.getString("i")));
+        List<Page> pages = new ArrayList<>();
+        if (t.contains("pages", Tag.TAG_LIST)) {
+            ListTag pl = t.getList("pages", Tag.TAG_COMPOUND);
+            for (int i = 0; i < pl.size() && i < MAX_PAGES; i++) {
+                CompoundTag pc = pl.getCompound(i);
+                List<Dish> dishes = new ArrayList<>();
+                ListTag dl = pc.getList("dishes", Tag.TAG_COMPOUND);
+                for (int j = 0; j < dl.size() && j < PER_PAGE; j++) dishes.add(readDish(dl.getCompound(j)));
+                pages.add(new Page(pc.getString("sub"), dishes));
+            }
+        } else {
+            // Ancienne carte (plats à la suite) : découpée en pages de PER_PAGE plats, sans sous-titre.
+            ListTag list = t.getList("dishes", Tag.TAG_COMPOUND);
+            List<Dish> cur = new ArrayList<>();
+            for (int i = 0; i < list.size() && i < MAX_PAGES * PER_PAGE; i++) {
+                cur.add(readDish(list.getCompound(i)));
+                if (cur.size() == PER_PAGE) { pages.add(new Page("", cur)); cur = new ArrayList<>(); }
+            }
+            if (!cur.isEmpty()) pages.add(new Page("", cur));
         }
         return new Data(t.getString("title"), t.getString("sub"), Math.floorMod(t.getInt("theme"), THEMES),
-                t.contains("company") ? t.getInt("company") : -1, dishes);
+                t.contains("company") ? t.getInt("company") : -1, pages);
     }
 
     public static void write(ItemStack st, Data d) {
         CompoundTag t = new CompoundTag();
         t.putString("title", d.title()); t.putString("sub", d.sub()); t.putInt("theme", d.theme()); t.putInt("company", d.company());
-        ListTag list = new ListTag();
-        for (Dish x : d.dishes()) {
-            CompoundTag c = new CompoundTag();
-            c.putString("n", x.name()); c.putString("d", x.desc()); c.putString("p", x.price()); c.putString("i", x.image());
-            list.add(c);
+        ListTag pl = new ListTag();
+        for (Page pg : d.pages()) {
+            CompoundTag pc = new CompoundTag();
+            pc.putString("sub", pg.sub());
+            ListTag dl = new ListTag();
+            for (Dish x : pg.dishes()) dl.add(writeDish(x));
+            pc.put("dishes", dl);
+            pl.add(pc);
         }
-        t.put("dishes", list);
+        t.put("pages", pl);
         st.getOrCreateTag().put(TAG, t);
     }
 
@@ -106,13 +135,19 @@ public class RestaurantMenuItem extends Item {
         }
         EntrepriseData.Company c = WorkshopService.companyFor(sp);
         int company = old.company() >= 0 ? old.company() : (c != null ? c.id : -1);
-        List<Dish> dishes = new ArrayList<>();
-        for (Dish d : in.dishes()) {
-            if (dishes.size() >= MAX_DISHES) break;
-            Dish clean = new Dish(clean(d.name(), MAX_NAME), clean(d.desc(), MAX_DESC), clean(d.price(), MAX_PRICE), cleanImage(d.image()));
-            if (!clean.name().isEmpty() || !clean.desc().isEmpty() || !clean.price().isEmpty() || !clean.image().isEmpty()) dishes.add(clean);
+        List<Page> pages = new ArrayList<>();
+        for (Page pg : in.pages()) {
+            if (pages.size() >= MAX_PAGES) break;
+            List<Dish> dishes = new ArrayList<>();
+            for (Dish d : pg.dishes()) {
+                if (dishes.size() >= PER_PAGE) break;
+                Dish clean = new Dish(clean(d.name(), MAX_NAME), clean(d.desc(), MAX_DESC), clean(d.price(), MAX_PRICE), cleanImage(d.image()));
+                if (!clean.name().isEmpty() || !clean.desc().isEmpty() || !clean.price().isEmpty() || !clean.image().isEmpty()) dishes.add(clean);
+            }
+            String sub = clean(pg.sub(), MAX_SUB);
+            if (!dishes.isEmpty() || !sub.isEmpty()) pages.add(new Page(sub, dishes));
         }
-        write(st, new Data(clean(in.title(), MAX_TITLE), clean(in.sub(), MAX_SUB), Math.floorMod(in.theme(), THEMES), company, dishes));
+        write(st, new Data(clean(in.title(), MAX_TITLE), clean(in.sub(), MAX_SUB), Math.floorMod(in.theme(), THEMES), company, pages));
         sp.displayClientMessage(Component.literal("Carte enregistrée."), true);
     }
 

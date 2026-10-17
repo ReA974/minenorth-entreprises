@@ -79,35 +79,48 @@ public final class ModNetwork {
         }
     }
 
-    /** Client → serveur : nouveau contenu de la carte tenue en main. Autorisation et assainissement côté serveur. */
+    /** Client → serveur : nouveau contenu de la carte tenue en main (pages avec sous-titre). Autorisation et assainissement côté serveur. */
     public record MenuSavePacket(boolean mainHand, String title, String sub, int theme,
-                                 List<fr.minenorth.entreprises.item.RestaurantMenuItem.Dish> dishes) {
-        private static final int MAXD = fr.minenorth.entreprises.item.RestaurantMenuItem.MAX_DISHES;
+                                 List<fr.minenorth.entreprises.item.RestaurantMenuItem.Page> pages) {
+        private static final int MAXP = fr.minenorth.entreprises.item.RestaurantMenuItem.MAX_PAGES;
+        private static final int MAXD = fr.minenorth.entreprises.item.RestaurantMenuItem.PER_PAGE;
         static void encode(MenuSavePacket p, FriendlyByteBuf b) {
             b.writeBoolean(p.mainHand); b.writeUtf(cut(p.title, 64), 64); b.writeUtf(cut(p.sub, 64), 64); b.writeVarInt(p.theme);
-            b.writeVarInt(Math.min(p.dishes.size(), MAXD));
-            for (int i = 0; i < p.dishes.size() && i < MAXD; i++) {
-                var d = p.dishes.get(i);
-                b.writeUtf(cut(d.name(), 64), 64); b.writeUtf(cut(d.desc(), 200), 200);
-                b.writeUtf(cut(d.price(), 32), 32); b.writeUtf(cut(d.image(), 100), 100);
+            b.writeVarInt(Math.min(p.pages.size(), MAXP));
+            for (int i = 0; i < p.pages.size() && i < MAXP; i++) {
+                var pg = p.pages.get(i);
+                b.writeUtf(cut(pg.sub(), 64), 64);
+                b.writeVarInt(Math.min(pg.dishes().size(), MAXD));
+                for (int j = 0; j < pg.dishes().size() && j < MAXD; j++) {
+                    var d = pg.dishes().get(j);
+                    b.writeUtf(cut(d.name(), 64), 64); b.writeUtf(cut(d.desc(), 200), 200);
+                    b.writeUtf(cut(d.price(), 32), 32); b.writeUtf(cut(d.image(), 100), 100);
+                }
             }
         }
         static MenuSavePacket decode(FriendlyByteBuf b) {
             boolean hand = b.readBoolean();
             String title = b.readUtf(64), sub = b.readUtf(64);
             int theme = b.readVarInt();
-            int n = b.readVarInt();
-            if (n < 0 || n > MAXD) throw new DecoderException("Trop de plats : " + n);
-            List<fr.minenorth.entreprises.item.RestaurantMenuItem.Dish> dishes = new ArrayList<>(n);
-            for (int i = 0; i < n; i++)
-                dishes.add(new fr.minenorth.entreprises.item.RestaurantMenuItem.Dish(b.readUtf(64), b.readUtf(200), b.readUtf(32), b.readUtf(100)));
-            return new MenuSavePacket(hand, title, sub, theme, dishes);
+            int np = b.readVarInt();
+            if (np < 0 || np > MAXP) throw new DecoderException("Trop de pages : " + np);
+            List<fr.minenorth.entreprises.item.RestaurantMenuItem.Page> pages = new ArrayList<>(np);
+            for (int i = 0; i < np; i++) {
+                String psub = b.readUtf(64);
+                int n = b.readVarInt();
+                if (n < 0 || n > MAXD) throw new DecoderException("Trop de plats : " + n);
+                List<fr.minenorth.entreprises.item.RestaurantMenuItem.Dish> dishes = new ArrayList<>(n);
+                for (int j = 0; j < n; j++)
+                    dishes.add(new fr.minenorth.entreprises.item.RestaurantMenuItem.Dish(b.readUtf(64), b.readUtf(200), b.readUtf(32), b.readUtf(100)));
+                pages.add(new fr.minenorth.entreprises.item.RestaurantMenuItem.Page(psub, dishes));
+            }
+            return new MenuSavePacket(hand, title, sub, theme, pages);
         }
         static void handle(MenuSavePacket p, Supplier<NetworkEvent.Context> c) {
             c.get().enqueueWork(() -> {
                 ServerPlayer sp = c.get().getSender();
                 if (sp != null) fr.minenorth.entreprises.item.RestaurantMenuItem.save(sp, p.mainHand,
-                        new fr.minenorth.entreprises.item.RestaurantMenuItem.Data(p.title, p.sub, p.theme, -1, p.dishes));
+                        new fr.minenorth.entreprises.item.RestaurantMenuItem.Data(p.title, p.sub, p.theme, -1, p.pages));
             });
             c.get().setPacketHandled(true);
         }
