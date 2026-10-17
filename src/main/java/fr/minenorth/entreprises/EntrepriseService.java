@@ -666,6 +666,7 @@ public final class EntrepriseService {
                 }
                 paid += g.salary;
                 emp.sendSystemMessage(Component.literal("§aSalaire reçu de « " + c.name + " » : " + money(g.salary) + "."));
+                withholdTax(s, m.id, g.salary);
             }
             if (paid > 0) tell(s, c.owner, "§e« " + c.name + " » : " + money(paid) + " de salaires prélevés sur le compte entreprise.");
             if (unpaid > 0) tell(s, c.owner, "§c« " + c.name + " » : " + unpaid + " salaire(s) non versé(s).");
@@ -691,5 +692,14 @@ public final class EntrepriseService {
     @SubscribeEvent
     public static void login(PlayerEvent.PlayerLoggedInEvent e) {
         if (e.getEntity() instanceof ServerPlayer p) InvoiceService.onLogin(p);
+    }
+
+    /** Impôt sur le salaire du mod État (optionnel : réflexion). Sans le mod État, rien n'est retenu. */
+    private static void withholdTax(MinecraftServer s, UUID player, long cents) {
+        try {
+            Class.forName("fr.minenorth.etat.api.EtatApi").getMethod("withholdSalary", MinecraftServer.class, UUID.class, long.class).invoke(null, s, player, cents);
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+            // mod État absent ou ancien : pas d'impôt sur le salaire
+        }
     }
 }
