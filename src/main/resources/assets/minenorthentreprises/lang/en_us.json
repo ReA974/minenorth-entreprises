@@ -15,5 +15,7 @@
   "item.minenorthentreprises.distributeur_mixte": "Distributeur mixte",
   "block.minenorthentreprises.distributeur_toutenun": "Distributeur tout-en-un",
   "item.minenorthentreprises.distributeur_toutenun": "Distributeur tout-en-un",
-  "item.minenorthentreprises.carte_restaurant": "Restaurant Menu"
+  "item.minenorthentreprises.carte_restaurant": "Restaurant Menu",
+  "block.minenorthentreprises.distributeur_menus": "Distributeur de menus",
+  "item.minenorthentreprises.distributeur_menus": "Distributeur de menus"
 }

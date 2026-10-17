@@ -1,0 +1,19 @@
+{
+ "variants": {
+  "facing=north": {
+   "model": "minenorthentreprises:block/distributeur_menus"
+  },
+  "facing=east": {
+   "model": "minenorthentreprises:block/distributeur_menus",
+   "y": 90
+  },
+  "facing=south": {
+   "model": "minenorthentreprises:block/distributeur_menus",
+   "y": 180
+  },
+  "facing=west": {
+   "model": "minenorthentreprises:block/distributeur_menus",
+   "y": 270
+  }
+ }
+}

@@ -32,8 +32,12 @@ public final class ModItems {
 
     public static final RegistryObject<Item> RESTAURANT_MENU = ITEMS.register("carte_restaurant", RestaurantMenuItem::new);
 
+    /** Distributeur de menus (pile de cartes) : voir le paquet menustand. */
+    public static final RegistryObject<Item> MENU_STAND = ITEMS.register("distributeur_menus",
+            () -> new net.minecraft.world.item.BlockItem(fr.minenorth.entreprises.menustand.ModMenuStand.BLOCK.get(), new Item.Properties()));
+
     public static final DeferredRegister<CreativeModeTab> TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MineNorthEntreprises.MOD_ID);
-    public static final net.minecraft.world.item.CreativeModeTab.DisplayItemsGenerator TAB_ITEMS = (params, out) -> { out.accept(TABLET.get()); out.accept(VENDING.get()); VENDING_VARIANTS.values().forEach(v -> out.accept(v.get())); out.accept(PAINT_BOOTH.get()); out.accept(RESTAURANT_MENU.get()); };
+    public static final net.minecraft.world.item.CreativeModeTab.DisplayItemsGenerator TAB_ITEMS = (params, out) -> { out.accept(TABLET.get()); out.accept(VENDING.get()); VENDING_VARIANTS.values().forEach(v -> out.accept(v.get())); out.accept(PAINT_BOOTH.get()); out.accept(RESTAURANT_MENU.get()); out.accept(MENU_STAND.get()); };
 
     public static void register(IEventBus modBus) {
         ITEMS.register(modBus);
