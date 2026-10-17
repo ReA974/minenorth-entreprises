@@ -684,6 +684,7 @@ public final class EntrepriseService {
         OPEN.remove(e.getEntity().getUUID());
         ADMIN_FOCUS.remove(e.getEntity().getUUID());
         PANEL_ADMINS.remove(e.getEntity().getUUID());
+        PANEL_BANKERS.remove(e.getEntity().getUUID());
         if (e.getEntity() instanceof ServerPlayer p) InvoiceService.onLogout(p);
     }
 
