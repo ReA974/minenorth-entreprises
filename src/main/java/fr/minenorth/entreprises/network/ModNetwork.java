@@ -38,7 +38,7 @@ public final class ModNetwork {
             SET_BALANCE = 26,       // admin : a = montant (€), b = "add" | "take" | "set" (ajuste le solde du compte de l'entreprise)
             LINK_BANK = 27;         // admin : relie / délie le capital de la banque (prêts) à cette entreprise (bascule)
 
-    private static final String PROTOCOL = "9";
+    private static final String PROTOCOL = "10";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MineNorthEntreprises.MOD_ID, "network"), () -> PROTOCOL, PROTOCOL::equals, PROTOCOL::equals);
     private static int id = 0;
@@ -68,6 +68,7 @@ public final class ModNetwork {
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
         CHANNEL.registerMessage(id++, fr.minenorth.entreprises.menustand.SetMenuPacket.class, fr.minenorth.entreprises.menustand.SetMenuPacket::encode,
                 fr.minenorth.entreprises.menustand.SetMenuPacket::decode, fr.minenorth.entreprises.menustand.SetMenuPacket::handle, Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        id = PhoneNet.register(CHANNEL, id);   // application « téléphone » (état + ouverture)
     }
 
     /** Serveur → client : ouvre la carte de restaurant tenue en main (lecture, ou édition si le serveur l'autorise). */
