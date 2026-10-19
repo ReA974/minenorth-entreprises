@@ -3,8 +3,8 @@
   "block.minenorthentreprises.distributeur": "Distributeur automatique",
   "item.minenorthentreprises.distributeur": "Distributeur automatique",
   "itemGroup.minenorthentreprises": "Entreprises MineNorth",
-  "block.minenorthentreprises.cabine_peinture": "Paint Booth",
-  "item.minenorthentreprises.cabine_peinture": "Paint Booth",
+  "block.minenorthentreprises.cabine_peinture": "Cabine de peinture",
+  "item.minenorthentreprises.cabine_peinture": "Cabine de peinture",
   "block.minenorthentreprises.distributeur_boissons": "Distributeur de boissons",
   "item.minenorthentreprises.distributeur_boissons": "Distributeur de boissons",
   "block.minenorthentreprises.distributeur_snacks": "Distributeur de snacks",
@@ -15,7 +15,7 @@
   "item.minenorthentreprises.distributeur_mixte": "Distributeur mixte",
   "block.minenorthentreprises.distributeur_toutenun": "Distributeur tout-en-un",
   "item.minenorthentreprises.distributeur_toutenun": "Distributeur tout-en-un",
-  "item.minenorthentreprises.carte_restaurant": "Restaurant Menu",
+  "item.minenorthentreprises.carte_restaurant": "Carte de restaurant",
   "block.minenorthentreprises.distributeur_menus": "Distributeur de menus",
   "item.minenorthentreprises.distributeur_menus": "Distributeur de menus"
 }
