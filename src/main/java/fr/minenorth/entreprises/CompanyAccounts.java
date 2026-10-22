@@ -27,12 +27,19 @@ public final class CompanyAccounts {
 
     private CompanyAccounts() {}
 
-    /** Accès aux fonctions bancaires de l'entreprise : le patron, ou un membre dont le grade a le droit « manage ». */
+    /** Accès aux fonctions bancaires de l'entreprise : le patron, ou un membre dont le grade a le droit « Compte de l'entreprise ». */
     public static boolean canBank(Company c, UUID id) {
-        if (c == null || id == null) return false;
-        if (id.equals(c.owner)) return true;
-        Grade g = c.gradeOf(id);
-        return g != null && g.manage;
+        return c != null && c.has(id, EntrepriseData.P_BANK);
+    }
+
+    /** Droit d'émettre et d'annuler des factures. */
+    public static boolean canInvoice(Company c, UUID id) {
+        return c != null && c.has(id, EntrepriseData.P_INVOICES);
+    }
+
+    /** Droit de gérer le stock, les prix et les postes de l'entreprise (distributeurs, ateliers). */
+    public static boolean canStock(Company c, UUID id) {
+        return c != null && c.has(id, EntrepriseData.P_STOCK);
     }
 
     public static boolean open(MinecraftServer s, Company c) {

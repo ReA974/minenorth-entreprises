@@ -18,9 +18,17 @@ public class EntrepriseData extends SavedData {
     private static final String NAME = "minenorth_entreprises";
     public static final int PENDING = 0, ACTIVE = 1;
 
+    /** Droits qu'un patron accorde à chaque grade (masque de bits). Le patron a toujours tous les droits. */
+    public static final int P_RECRUIT = 1, P_BANK = 2, P_INVOICES = 4, P_STOCK = 8, P_OPEN = 16, P_ALL = 31, P_ALL_COUNT = 5;
+    /** Libellés affichés dans l'interface, dans l'ordre des bits. */
+    public static final String[] P_LABELS = {"Embaucher / licencier", "Compte de l'entreprise", "Factures", "Stock et distributeurs", "Ouvrir / fermer"};
+
     public static final class Grade {
-        public String name; public long salary; public boolean manage;
-        public Grade(String name, long salary, boolean manage) { this.name = name; this.salary = salary; this.manage = manage; }
+        public String name; public long salary; public int perms;
+        public Grade(String name, long salary, int perms) { this.name = name; this.salary = salary; this.perms = perms & P_ALL; }
+        public boolean has(int perm) { return (perms & perm) != 0; }
+        /** Grade « de gestion » : au moins un droit (ancien réglage « manage »). */
+        public boolean manage() { return perms != 0; }
     }
     public static final class Member {
         public final UUID id; public String name; public int grade;
@@ -43,6 +51,13 @@ public class EntrepriseData extends SavedData {
             Member m = members.get(player);
             if (m == null || grades.isEmpty()) return null;
             return grades.get(Math.max(0, Math.min(grades.size() - 1, m.grade)));
+        }
+        /** Vrai si le patron, ou si le grade du membre a ce droit. */
+        public boolean has(UUID player, int perm) {
+            if (player == null) return false;
+            if (player.equals(owner)) return true;
+            Grade g = gradeOf(player);
+            return g != null && g.has(perm);
         }
         public boolean isIn(UUID player) { return player != null && (player.equals(owner) || members.containsKey(player)); }
     }
@@ -82,6 +97,8 @@ public class EntrepriseData extends SavedData {
     private final Map<Integer, Invoice> invoices = new LinkedHashMap<>();
     /** Invitations en attente : invité -> (id entreprise -> nom de celui qui invite). Non sauvegardé. */
     private final Map<UUID, Map<Integer, String>> invites = new LinkedHashMap<>();
+    /** Entreprise « active » de chaque joueur (celle que ses menus et ses outils utilisent) quand il appartient à plusieurs. */
+    private final Map<UUID, Integer> active = new LinkedHashMap<>();
     private int nextId = 1;
     private int nextInvoiceId = 1;
 
@@ -107,7 +124,9 @@ public class EntrepriseData extends SavedData {
             ListTag gl = t.getList("grades", Tag.TAG_COMPOUND);
             for (int j = 0; j < gl.size(); j++) {
                 CompoundTag g = gl.getCompound(j);
-                c.grades.add(new Grade(g.getString("name"), g.getLong("salary"), g.getBoolean("manage")));
+                // migration : l'ancien réglage « manage » donne tous les droits, sinon aucun
+                int perms = g.contains("perms") ? g.getInt("perms") : g.getBoolean("manage") ? P_ALL : 0;
+                c.grades.add(new Grade(g.getString("name"), g.getLong("salary"), perms));
             }
             ListTag ml = t.getList("members", Tag.TAG_COMPOUND);
             for (int j = 0; j < ml.size(); j++) {
@@ -116,6 +135,11 @@ public class EntrepriseData extends SavedData {
                 c.members.put(id, new Member(id, m.getString("name"), m.getInt("grade")));
             }
             if (c.owner != null) { d.companies.put(c.id, c); d.nextId = Math.max(d.nextId, c.id + 1); }
+        }
+        ListTag al = tag.getList("active", Tag.TAG_COMPOUND);
+        for (int i = 0; i < al.size(); i++) {
+            CompoundTag t = al.getCompound(i);
+            if (t.hasUUID("p")) d.active.put(t.getUUID("p"), t.getInt("c"));
         }
         // Factures : absentes des anciennes sauvegardes (liste vide).
         d.nextInvoiceId = Math.max(1, tag.getInt("nextInvoiceId"));
@@ -150,7 +174,7 @@ public class EntrepriseData extends SavedData {
             ListTag gl = new ListTag();
             for (Grade g : c.grades) {
                 CompoundTag gt = new CompoundTag();
-                gt.putString("name", g.name); gt.putLong("salary", g.salary); gt.putBoolean("manage", g.manage);
+                gt.putString("name", g.name); gt.putLong("salary", g.salary); gt.putInt("perms", g.perms); gt.putBoolean("manage", g.manage());
                 gl.add(gt);
             }
             t.put("grades", gl);
@@ -164,6 +188,13 @@ public class EntrepriseData extends SavedData {
             list.add(t);
         }
         tag.put("companies", list);
+        ListTag al = new ListTag();
+        for (Map.Entry<UUID, Integer> e : active.entrySet()) {
+            CompoundTag t = new CompoundTag();
+            t.putUUID("p", e.getKey()); t.putInt("c", e.getValue());
+            al.add(t);
+        }
+        tag.put("active", al);
         tag.putInt("nextInvoiceId", nextInvoiceId);
         ListTag il = new ListTag();
         for (Invoice inv : invoices.values()) {
@@ -241,10 +272,28 @@ public class EntrepriseData extends SavedData {
     public Collection<Company> all() { return companies.values(); }
     public Company get(int id) { return companies.get(id); }
 
-    /** Entreprise dont le joueur est patron ou employé (une seule à la fois). */
+    /** Entreprises dont le joueur est patron ou employé, dans l'ordre de création. */
+    public List<Company> companiesOf(UUID player) {
+        List<Company> out = new ArrayList<>();
+        for (Company c : companies.values()) if (c.isIn(player)) out.add(c);
+        return out;
+    }
+
+    /** Entreprise active du joueur (la dernière choisie, sinon la première), ou null s'il n'en a aucune. */
     public Company companyOf(UUID player) {
-        for (Company c : companies.values()) if (c.isIn(player)) return c;
+        Integer id = active.get(player);
+        Company c = id == null ? null : companies.get(id);
+        if (c != null && c.isIn(player)) return c;
+        for (Company o : companies.values()) if (o.isIn(player)) return o;
         return null;
+    }
+
+    /** Choisit l'entreprise active du joueur ; faux s'il n'en fait pas partie. */
+    public boolean setActive(UUID player, int companyId) {
+        Company c = companies.get(companyId);
+        if (c == null || !c.isIn(player)) return false;
+        if (!Integer.valueOf(companyId).equals(active.put(player, companyId))) setDirty();
+        return true;
     }
     public Company byName(String name) {
         for (Company c : companies.values()) if (c.name.equalsIgnoreCase(name.trim())) return c;
@@ -256,9 +305,9 @@ public class EntrepriseData extends SavedData {
         c.id = nextId++; c.name = name; c.activity = activity; c.owner = owner; c.ownerName = ownerName;
         c.accountId = UUID.randomUUID();
         c.status = status; c.feePaid = feePaid; c.created = System.currentTimeMillis();
-        c.grades.add(new Grade("Co-gérant", 0, true));
-        c.grades.add(new Grade("Employé", 0, false));
-        c.grades.add(new Grade("Stagiaire", 0, false));
+        c.grades.add(new Grade("Co-gérant", 0, P_ALL));
+        c.grades.add(new Grade("Employé", 0, 0));
+        c.grades.add(new Grade("Stagiaire", 0, 0));
         companies.put(c.id, c);
         invites.remove(owner);
         setDirty();
@@ -267,6 +316,7 @@ public class EntrepriseData extends SavedData {
 
     public void remove(int id) {
         companies.remove(id);
+        active.values().removeIf(v -> v == id);
         for (Map<Integer, String> m : invites.values()) m.remove(id);
         setDirty();
     }

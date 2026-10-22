@@ -77,11 +77,17 @@ public final class EntrepriseService {
 
     /** Clic droit avec la tablette : réservée au PDG d'une entreprise active. */
     public static void openTablet(ServerPlayer p) {
-        Company c = EntrepriseData.get(p.server).companyOf(p.getUUID());
+        EntrepriseData data = EntrepriseData.get(p.server);
+        Company c = data.companyOf(p.getUUID());
         if (c == null || !p.getUUID().equals(c.owner)) {
+            c = null;   // patron de plusieurs entreprises ou membre d'une autre : on prend celle dont il est le patron
+            for (Company o : data.companiesOf(p.getUUID())) if (p.getUUID().equals(o.owner)) { c = o; break; }
+        }
+        if (c == null) {
             p.displayClientMessage(Component.literal("§cSeul le PDG d'une entreprise peut utiliser cette tablette."), true);
             return;
         }
+        data.setActive(p.getUUID(), c.id);
         if (c.status != EntrepriseData.ACTIVE) {
             p.displayClientMessage(Component.literal("§eVotre entreprise n'est pas encore validée."), true);
             return;
@@ -108,7 +114,7 @@ public final class EntrepriseService {
      */
     private static ModNetwork.CompanyView view(MinecraftServer s, Company c, UUID viewer, boolean admin, boolean focused) {
         List<ModNetwork.GradeView> grades = new ArrayList<>();
-        for (Grade g : c.grades) grades.add(new ModNetwork.GradeView(g.name, g.salary, g.manage));
+        for (Grade g : c.grades) grades.add(new ModNetwork.GradeView(g.name, g.salary, g.perms));
         List<ModNetwork.MemberView> members = new ArrayList<>();
         for (Member m : c.members.values()) {
             ServerPlayer on = s.getPlayerList().getPlayer(m.id);
@@ -134,12 +140,13 @@ public final class EntrepriseService {
         }
         // Factures : même règle que l'historique (gérant de sa propre entreprise, ou OP sur l'entreprise ciblée).
         List<ModNetwork.InvoiceView> invoices = new ArrayList<>();
-        if (withHistory) for (EntrepriseData.Invoice inv : EntrepriseData.get(s).invoicesOf(c.id)) {
+        boolean invoiceAccess = (admin && focused) || (!admin && CompanyAccounts.canInvoice(c, viewer));
+        if (invoiceAccess) for (EntrepriseData.Invoice inv : EntrepriseData.get(s).invoicesOf(c.id)) {
             if (invoices.size() >= ModNetwork.INVOICES_SENT) break;
             invoices.add(new ModNetwork.InvoiceView(inv.id, inv.created, inv.payerName, inv.description, inv.cents, inv.status.ordinal()));
         }
         return new ModNetwork.CompanyView(c.id, c.name, c.activity, c.owner, MineNorth.displayName(s, c.owner), c.status, grades, members,
-                c.dissolveRequested, balance, bankAccess, txs, invoices, bankAccess ? nearby(s, viewer) : new ArrayList<>(), c.open);
+                c.dissolveRequested, balance, bankAccess, txs, invoices, !admin && CompanyAccounts.canInvoice(c, viewer) ? nearby(s, viewer) : new ArrayList<>(), c.open);
     }
 
     /** Autres joueurs en ligne à portée de facture du joueur {@code viewer} (même dimension), les plus proches d'abord. */
@@ -188,14 +195,18 @@ public final class EntrepriseService {
             for (Company c : d.all()) list.add(view(p.server, c, p.getUUID(), true, focus != null && focus == c.id));
         } else if (self != null) {
             list.add(view(p.server, self, p.getUUID(), false, false));
-        } else {
+        }
+        List<ModNetwork.MineView> mine = new ArrayList<>();
+        if (!admin) {
+            for (Company o : d.companiesOf(p.getUUID())) mine.add(new ModNetwork.MineView(o.id, o.name));
             for (Map.Entry<Integer, String> e : d.invitesOf(p.getUUID()).entrySet()) {
                 Company c = d.get(e.getKey());
                 if (c != null) invites.add(new ModNetwork.InviteView(c.id, c.name, e.getValue()));
             }
         }
         ModNetwork.send(p, new ModNetwork.StatePacket(admin, msg, ok, cfg.feeCents(), cfg.validation_op,
-                cfg.salaire_intervalle_minutes, cfg.max_employes, cfg.max_grades, self == null ? -1 : self.id, list, invites));
+                cfg.salaire_intervalle_minutes, cfg.max_employes, cfg.max_grades, self == null ? -1 : self.id, list, invites,
+                mine, !admin && mine.size() < cfg.max_appartenances));
     }
 
     // ------------------------------------------------------------------ outils
@@ -286,14 +297,19 @@ public final class EntrepriseService {
             case ModNetwork.CREATE: return admin ? adminCreate(s, d, k) : create(p, d, cfg, k);
             case ModNetwork.ACCEPT: {
                 if (admin) return null;
-                if (d.companyOf(me) != null) return R.err("Vous faites déjà partie d'une entreprise.");
+                if (d.companiesOf(me).size() >= cfg.max_appartenances) return R.err("Vous faites déjà partie de " + cfg.max_appartenances + " entreprise(s) : c'est le maximum.");
                 Company c = d.get(k.companyId());
                 if (c == null || !d.consumeInvite(me, k.companyId())) return R.err("Cette invitation n'est plus valable.");
+                if (c.isIn(me)) return R.err("Vous faites déjà partie de cette entreprise.");
                 if (c.members.size() >= cfg.max_employes) return R.err("Cette entreprise est complète.");
                 c.members.put(me, new Member(me, p.getGameProfile().getName(), c.grades.size() - 1));
-                d.clearInvites(me); d.setDirty();
+                d.setActive(me, c.id); d.setDirty();
                 tell(s, c.owner, "§a" + MineNorth.displayName(p) + " a rejoint « " + c.name + " ».");
                 return R.ok("Vous avez rejoint « " + c.name + " ».");
+            }
+            case ModNetwork.SELECT: {
+                if (admin) return null;
+                return d.setActive(me, k.companyId()) ? R.ok("") : R.err("Vous ne faites pas partie de cette entreprise.");
             }
             case ModNetwork.REFUSE_INVITE: {
                 if (admin) return null;
@@ -308,7 +324,8 @@ public final class EntrepriseService {
         if (c == null) return R.err("Entreprise introuvable.");
         boolean owner = admin || me.equals(c.owner);
         Grade myGrade = c.gradeOf(me);
-        boolean manage = owner || (myGrade != null && myGrade.manage);
+        boolean canRecruit = owner || (myGrade != null && myGrade.has(EntrepriseData.P_RECRUIT));
+        boolean canOpen = owner || (myGrade != null && myGrade.has(EntrepriseData.P_OPEN));
 
         switch (k.action()) {
             case ModNetwork.DISSOLVE: {
@@ -340,7 +357,7 @@ public final class EntrepriseService {
                 return R.ok("Demande de dissolution refusée.");
             }
             case ModNetwork.SET_OPEN: {
-                if (admin || !manage) return R.err("Réservé au patron et aux grades de gestion.");
+                if (admin || !canOpen) return R.err("Vous n'avez pas le droit d'ouvrir ou de fermer l'entreprise.");
                 if (c.status != EntrepriseData.ACTIVE) return R.err("L'entreprise n'est pas encore validée.");
                 c.open = k.n() == 1; d.setDirty();
                 return R.ok(c.open ? "Entreprise ouverte (visible « Ouvert » sur la carte tant que quelqu'un est connecté)."
@@ -446,12 +463,13 @@ public final class EntrepriseService {
                 return R.ok("Vous avez quitté « " + c.name + " ».");
             }
             case ModNetwork.INVITE: {
-                if (!manage) return R.err("Vous n'avez pas le droit d'embaucher.");
+                if (!canRecruit) return R.err("Vous n'avez pas le droit d'embaucher.");
                 if (!admin && c.status != EntrepriseData.ACTIVE) return R.err("L'entreprise n'est pas encore validée.");
                 if (c.members.size() >= cfg.max_employes) return R.err("Nombre maximum d'employés atteint (" + cfg.max_employes + ").");
                 GameProfile target = resolve(s, k.a(), admin);
                 if (target == null) return R.err(admin ? "Joueur introuvable." : "Ce joueur doit être connecté.");
-                if (d.companyOf(target.getId()) != null) return R.err(target.getName() + " fait déjà partie d'une entreprise.");
+                if (c.isIn(target.getId())) return R.err(target.getName() + " fait déjà partie de cette entreprise.");
+                if (!admin && d.companiesOf(target.getId()).size() >= cfg.max_appartenances) return R.err(target.getName() + " fait déjà partie de " + cfg.max_appartenances + " entreprise(s) : c'est le maximum.");
                 if (admin) {
                     c.members.put(target.getId(), new Member(target.getId(), target.getName(), c.grades.size() - 1));
                     d.clearInvites(target.getId()); d.setDirty();
@@ -464,10 +482,10 @@ public final class EntrepriseService {
                 return R.ok("Invitation envoyée à " + target.getName() + ".");
             }
             case ModNetwork.FIRE: {
-                if (!manage) return R.err("Vous n'avez pas le droit de licencier.");
+                if (!canRecruit) return R.err("Vous n'avez pas le droit de licencier.");
                 Member m = c.members.get(uuid(k.a()));
                 if (m == null) return R.err("Employé introuvable.");
-                if (!owner && (m.id.equals(me) || c.gradeOf(m.id).manage)) return R.err("Seul le patron peut licencier ce membre.");
+                if (!owner && (m.id.equals(me) || c.gradeOf(m.id).manage())) return R.err("Seul le patron peut licencier ce membre.");
                 c.members.remove(m.id); d.setDirty();
                 tell(s, m.id, "§eVous ne faites plus partie de l'entreprise « " + c.name + " ».");
                 return R.ok(MineNorth.displayName(s, m.id) + " ne fait plus partie de l'entreprise.");
@@ -487,14 +505,15 @@ public final class EntrepriseService {
                 long salary = euros(k.b());
                 if (salary < 0) return R.err("Salaire invalide.");
                 if (!admin && salary > cfg.maxSalaryCents()) return R.err("Salaire maximum : " + money(cfg.maxSalaryCents()) + ".");
-                boolean mg = "1".equals(k.c());
+                int perms;
+                try { perms = Integer.parseInt(k.c().trim()) & EntrepriseData.P_ALL; } catch (NumberFormatException e) { return R.err("Droits invalides."); }
                 if (k.n() < 0) {
                     if (c.grades.size() >= cfg.max_grades) return R.err("Nombre maximum de grades atteint.");
-                    c.grades.add(new Grade(name, salary, mg));
+                    c.grades.add(new Grade(name, salary, perms));
                 } else {
                     if (k.n() >= c.grades.size()) return R.err("Grade introuvable.");
                     Grade g = c.grades.get(k.n());
-                    g.name = name; g.salary = salary; g.manage = mg;
+                    g.name = name; g.salary = salary; g.perms = perms;
                 }
                 d.setDirty();
                 return R.ok("Grade « " + name + " » enregistré.");
@@ -538,8 +557,6 @@ public final class EntrepriseService {
                 GameProfile boss = resolve(s, k.c(), true);
                 if (boss == null) return R.err("Patron introuvable.");
                 if (!boss.getId().equals(c.owner)) {
-                    Company other = d.companyOf(boss.getId());
-                    if (other != null && other != c) return R.err(boss.getName() + " fait déjà partie d'une autre entreprise.");
                     c.members.remove(boss.getId());
                     tell(s, c.owner, "§eVous n'êtes plus le patron de « " + c.name + " ».");
                     c.owner = boss.getId();
@@ -567,7 +584,7 @@ public final class EntrepriseService {
     }
 
     private static R create(ServerPlayer p, EntrepriseData d, EntrepriseConfig cfg, ActionPacket k) {
-        if (d.companyOf(p.getUUID()) != null) return R.err("Vous faites déjà partie d'une entreprise.");
+        if (d.companiesOf(p.getUUID()).size() >= cfg.max_appartenances) return R.err("Vous faites déjà partie de " + cfg.max_appartenances + " entreprise(s) : c'est le maximum.");
         String name = clean(k.a()), activity = clean(k.b());
         String err = validate(d, name, activity, null, false);
         if (err != null) return R.err(err);
@@ -587,6 +604,7 @@ public final class EntrepriseService {
         }
         CompanyAccounts.syncSigners(p.server, c);
         CompanyAccounts.syncListing(p.server, c);
+        d.setActive(p.getUUID(), c.id);
         if (pending) {
             for (ServerPlayer op : p.server.getPlayerList().getPlayers()) {
                 if (op.hasPermissions(2)) op.sendSystemMessage(Component.literal("§e[Entreprises] " + MineNorth.displayName(p)
@@ -604,7 +622,6 @@ public final class EntrepriseService {
         if (err != null) return R.err(err);
         GameProfile boss = resolve(s, k.c(), true);
         if (boss == null) return R.err("Patron introuvable.");
-        if (d.companyOf(boss.getId()) != null) return R.err(boss.getName() + " fait déjà partie d'une entreprise.");
         if (MineNorth.bank() == BankService.NONE) return R.err("Service bancaire indisponible.");
         Company c = d.create(name, activity, boss.getId(), boss.getName(), EntrepriseData.ACTIVE, 0);
         if (!CompanyAccounts.open(s, c)) {

@@ -40,6 +40,8 @@ public final class EntrepriseConfig {
     public int entreprise_banque_id = -1;
     public int max_employes = 20;
     public int max_grades = 6;
+    /** Nombre maximum d'entreprises auxquelles un joueur peut appartenir en même temps (patron ou employé). */
+    public int max_appartenances = 3;
     /** Distance maximale (blocs, même dimension) entre l'émetteur et le client à la création d'une facture. */
     public int facture_distance_blocs = 10;
     /** Délai de signature d'une facture, en secondes ; passé ce délai, elle expire. */
@@ -73,6 +75,7 @@ public final class EntrepriseConfig {
         c.salaire_intervalle_minutes = Math.max(1, c.salaire_intervalle_minutes);
         c.max_employes = Math.max(1, c.max_employes);
         c.max_grades = Math.max(1, Math.min(6, c.max_grades));
+        c.max_appartenances = Math.max(1, Math.min(10, c.max_appartenances));
         c.facture_distance_blocs = Math.max(1, c.facture_distance_blocs);
         c.facture_signature_secondes = Math.max(1, c.facture_signature_secondes);
         c.facture_relance_minutes = Math.max(1, c.facture_relance_minutes);

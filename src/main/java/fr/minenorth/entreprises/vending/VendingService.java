@@ -86,7 +86,7 @@ public final class VendingService {
     /** Entreprise active dont le joueur est patron ou gérant (celle qui peut poser un distributeur), sinon null. */
     public static Company companyFor(ServerPlayer p) {
         Company c = EntrepriseData.get(p.server).companyOf(p.getUUID());
-        return c != null && c.status == EntrepriseData.ACTIVE && CompanyAccounts.canBank(c, p.getUUID()) ? c : null;
+        return c != null && c.status == EntrepriseData.ACTIVE && CompanyAccounts.canStock(c, p.getUUID()) ? c : null;
     }
 
     /** Entreprise propriétaire du distributeur, uniquement si elle existe et est active. */
@@ -99,7 +99,7 @@ public final class VendingService {
     public static boolean canManage(ServerPlayer p, VendingMachineBE be) {
         if (p.hasPermissions(2)) return true;
         Company c = be.companyId < 0 ? null : EntrepriseData.get(p.server).get(be.companyId);
-        return c != null && CompanyAccounts.canBank(c, p.getUUID());
+        return c != null && CompanyAccounts.canStock(c, p.getUUID());
     }
 
     private static void reply(ServerPlayer p, boolean ok, String msg) {

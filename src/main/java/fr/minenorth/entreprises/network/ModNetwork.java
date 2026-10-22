@@ -36,9 +36,10 @@ public final class ModNetwork {
             CANCEL_INVOICE = 24,    // n = id de la facture
             SET_OPEN = 25,          // n = 1 ouvrir, 0 fermer (patron ou grade « gérer »)
             SET_BALANCE = 26,       // admin : a = montant (€), b = "add" | "take" | "set" (ajuste le solde du compte de l'entreprise)
-            LINK_BANK = 27;         // admin : relie / délie le capital de la banque (prêts) à cette entreprise (bascule)
+            LINK_BANK = 27,         // admin : relie / délie le capital de la banque (prêts) à cette entreprise (bascule)
+            SELECT = 28;            // joueur : companyId = entreprise à rendre active (il doit en faire partie)
 
-    private static final String PROTOCOL = "10";
+    private static final String PROTOCOL = "11";
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MineNorthEntreprises.MOD_ID, "network"), () -> PROTOCOL, PROTOCOL::equals, PROTOCOL::equals);
     private static int id = 0;
@@ -180,9 +181,17 @@ public final class ModNetwork {
         }
     }
 
-    public record GradeView(String name, long salary, boolean manage) {
-        static void encode(FriendlyByteBuf b, GradeView g) { b.writeUtf(g.name); b.writeLong(g.salary); b.writeBoolean(g.manage); }
-        static GradeView decode(FriendlyByteBuf b) { return new GradeView(b.readUtf(), b.readLong(), b.readBoolean()); }
+    /** perms = masque de droits (voir {@code EntrepriseData.P_*}). */
+    public record GradeView(String name, long salary, int perms) {
+        static void encode(FriendlyByteBuf b, GradeView g) { b.writeUtf(g.name); b.writeLong(g.salary); b.writeVarInt(g.perms); }
+        static GradeView decode(FriendlyByteBuf b) { return new GradeView(b.readUtf(), b.readLong(), b.readVarInt()); }
+        public boolean has(int perm) { return (perms & perm) != 0; }
+        public boolean manage() { return perms != 0; }
+    }
+    /** Une entreprise du joueur (pour le sélecteur). */
+    public record MineView(int id, String name) {
+        static void encode(FriendlyByteBuf b, MineView m) { b.writeVarInt(m.id); b.writeUtf(m.name); }
+        static MineView decode(FriendlyByteBuf b) { return new MineView(b.readVarInt(), b.readUtf()); }
     }
     public record MemberView(UUID id, String name, int grade, boolean online) {
         static void encode(FriendlyByteBuf b, MemberView m) { b.writeUUID(m.id); b.writeUtf(m.name); b.writeVarInt(m.grade); b.writeBoolean(m.online); }
@@ -281,16 +290,19 @@ public final class ModNetwork {
 
     /** État complet envoyé au client : ouvre ou met à jour l'interface. selfId = entreprise du joueur (-1 si aucune). */
     public record StatePacket(boolean admin, String message, boolean ok, long fee, boolean validation, int payMinutes,
-                              int maxEmployees, int maxGrades, int selfId, List<CompanyView> companies, List<InviteView> invites) {
+                              int maxEmployees, int maxGrades, int selfId, List<CompanyView> companies, List<InviteView> invites,
+                              List<MineView> mine, boolean canJoinMore) {
         static void encode(StatePacket p, FriendlyByteBuf b) {
             b.writeBoolean(p.admin); b.writeUtf(p.message); b.writeBoolean(p.ok); b.writeLong(p.fee); b.writeBoolean(p.validation);
             b.writeVarInt(p.payMinutes); b.writeVarInt(p.maxEmployees); b.writeVarInt(p.maxGrades); b.writeInt(p.selfId);
             b.writeCollection(p.companies, CompanyView::encode); b.writeCollection(p.invites, InviteView::encode);
+            b.writeCollection(p.mine, MineView::encode); b.writeBoolean(p.canJoinMore);
         }
         static StatePacket decode(FriendlyByteBuf b) {
             return new StatePacket(b.readBoolean(), b.readUtf(), b.readBoolean(), b.readLong(), b.readBoolean(),
                     b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readInt(),
-                    readList(b, CompanyView::decode, MAX_LIST), readList(b, InviteView::decode, MAX_LIST));
+                    readList(b, CompanyView::decode, MAX_LIST), readList(b, InviteView::decode, MAX_LIST),
+                    readList(b, MineView::decode, MAX_LIST), b.readBoolean());
         }
         static void handle(StatePacket p, Supplier<NetworkEvent.Context> c) {
             c.get().enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,

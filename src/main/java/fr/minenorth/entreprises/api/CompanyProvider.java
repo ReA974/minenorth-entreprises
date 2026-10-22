@@ -50,7 +50,10 @@ public final class CompanyProvider implements CompanyService {
     public boolean isMember(ServerPlayer p, int id, boolean directionOnly) {
         Company c = EntrepriseData.get(p.server).get(id);
         if (c == null || c.status != EntrepriseData.ACTIVE) return false;
-        if (directionOnly) return CompanyAccounts.canBank(c, p.getUUID());   // patron + grades avec droit de gestion
+        if (directionOnly) {   // patron + grades ayant au moins un droit (ancien « gestion »)
+            EntrepriseData.Grade g = c.gradeOf(p.getUUID());
+            return p.getUUID().equals(c.owner) || (g != null && g.manage());
+        }
         return p.getUUID().equals(c.owner) || c.members.containsKey(p.getUUID());
     }
 }

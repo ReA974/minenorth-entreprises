@@ -49,7 +49,7 @@ public final class InvoiceService {
         MinecraftServer s = issuer.server;
         EntrepriseData d = EntrepriseData.get(s);
         if (c == null || d.get(c.id) != c) return "Entreprise introuvable.";
-        if (!CompanyAccounts.canBank(c, issuer.getUUID())) return "Vous n'avez pas accès aux factures.";
+        if (!CompanyAccounts.canInvoice(c, issuer.getUUID())) return "Vous n'avez pas accès aux factures.";
         if (c.status != EntrepriseData.ACTIVE) return "L'entreprise n'est pas encore validée.";
         if (cents <= 0 || cents > MAX_CENTS) return "Montant invalide.";
         String desc = EntrepriseService.clean(description);
@@ -132,7 +132,7 @@ public final class InvoiceService {
         Invoice inv = d.invoice(invoiceId);
         if (inv == null) return NOT_FOUND;
         Company c = d.get(inv.companyId);
-        if (!CompanyAccounts.canBank(c, actor.getUUID()) && !actor.hasPermissions(2)) return NOT_FOUND;
+        if (!CompanyAccounts.canInvoice(c, actor.getUUID()) && !actor.hasPermissions(2)) return NOT_FOUND;
         if (!inv.status.open() || COLLECTING.contains(inv.id)) return "Cette facture ne peut plus être annulée.";
         d.setInvoiceStatus(inv, Status.CANCELED);
         EntrepriseService.tell(s, inv.payer, "§eLa facture de " + EntrepriseService.money(inv.cents)

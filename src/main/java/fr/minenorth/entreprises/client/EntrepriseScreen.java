@@ -1,5 +1,6 @@
 package fr.minenorth.entreprises.client;
 
+import fr.minenorth.entreprises.data.EntrepriseData;
 import fr.minenorth.entreprises.network.ModNetwork;
 import fr.minenorth.entreprises.network.ModNetwork.CompanyView;
 import fr.minenorth.entreprises.network.ModNetwork.GradeView;
@@ -45,7 +46,11 @@ public class EntrepriseScreen extends Screen {
     private int sel = -1;
     /** Onglet grades : -1 = aucun, -2 = nouveau grade, sinon index du grade en cours de modification. */
     private int selGrade = -1;
-    private boolean creating, confirm, gradeManage;
+    private boolean creating, confirm;
+    /** Droits du grade en cours de modification (masque de bits). */
+    private int gradePerms;
+    /** Joueur dans plusieurs entreprises : affiche les invitations / la création au lieu de l'entreprise active. */
+    private boolean viewNone;
     private String message = "";
     private boolean messageOk = true;
 
@@ -75,6 +80,7 @@ public class EntrepriseScreen extends Screen {
     /** Nouvel état envoyé par le serveur après une action. */
     public void update(ModNetwork.StatePacket s) {
         keep();
+        if (s.selfId() != st.selfId()) viewNone = false;
         this.st = s;
         this.message = s.message();
         this.messageOk = s.ok();
@@ -166,16 +172,37 @@ public class EntrepriseScreen extends Screen {
         boolean sub = st.admin() && (sel >= 0 || creating);
         btn(left + W - 100, top + 10, 86, 16, sub || parent != null ? "Retour" : "Fermer", MineNorthButton.GHOST, this::back);
 
+        if (!st.admin()) selector();
         if (st.admin()) {
             if (creating) buildAdminCreate();
             else if (company(sel) != null) buildCompany(company(sel), true);
             else { sel = -1; buildAdminList(); }
         } else {
             CompanyView c = company(st.selfId());
-            if (c == null) buildNone();
+            if (c == null || viewNone) buildNone();
             else if (c.status() == 0) buildPending(c);
             else buildCompany(c, false);
         }
+    }
+
+    /** Joueur dans plusieurs entreprises (ou pouvant en rejoindre / créer une autre) : bouton qui passe de l'une à l'autre. */
+    private void selector() {
+        List<ModNetwork.MineView> mine = st.mine();
+        boolean extra = st.canJoinMore() || !st.invites().isEmpty();
+        if (mine.isEmpty() || (mine.size() < 2 && !extra)) return;
+        int n = mine.size() + (extra ? 1 : 0);
+        int cur = mine.size();
+        if (!viewNone) for (int i = 0; i < mine.size(); i++) if (mine.get(i).id() == st.selfId()) cur = i;
+        String name = cur >= mine.size() ? "Invitations / nouvelle entreprise" : mine.get(cur).name();
+        if (font.width(name) > 150) name = font.plainSubstrByWidth(name, 140) + "…";
+        int next = (cur + 1) % n;
+        btn(left + 130, top + 27, W - 130 - 14, 13, (cur + 1) + "/" + n + " • " + name + "  ›", MineNorthStyle.DARK, () -> {
+            if (next >= mine.size()) go(() -> viewNone = true);
+            else {
+                go(() -> viewNone = false);
+                send(ModNetwork.SELECT, mine.get(next).id(), "", "", "", 0);
+            }
+        });
     }
 
     private void back() {
@@ -211,8 +238,8 @@ public class EntrepriseScreen extends Screen {
                 x, y + 74, MineNorthStyle.TEXT);
         label(st.validation() ? "La création doit ensuite être validée par un administrateur."
                 : "L'entreprise est active immédiatement.", x, y + 86, MineNorthStyle.MUTED);
-        btn(x, y + 102, w, 22, "CRÉER L'ENTREPRISE", MineNorthStyle.GREEN,
-                () -> send(ModNetwork.CREATE, 0, bName.getValue(), bActivity.getValue(), "", 0));
+        btn(x, y + 102, w, 22, st.canJoinMore() ? "CRÉER L'ENTREPRISE" : "LIMITE D'ENTREPRISES ATTEINTE", MineNorthStyle.GREEN,
+                () -> send(ModNetwork.CREATE, 0, bName.getValue(), bActivity.getValue(), "", 0)).enabled(st.canJoinMore());
     }
 
     private void buildPending(CompanyView c) {
@@ -235,9 +262,10 @@ public class EntrepriseScreen extends Screen {
         UUID me = me();
         boolean owner = admin || c.owner().equals(me);
         GradeView mine = gradeOf(c, me);
-        boolean manage = owner || (mine != null && mine.manage());
+        boolean manage = owner || (mine != null && mine.has(EntrepriseData.P_RECRUIT));
         boolean bank = !admin && c.bankAccess();
-        if ((tab == T_GRADES && !owner) || ((tab == T_TX || tab == T_INV) && !bank && !admin)) { tab = T_INFOS; page = 0; invoicing = false; }
+        boolean invoiceOk = !admin && (owner || (mine != null && mine.has(EntrepriseData.P_INVOICES)));
+        if ((tab == T_GRADES && !owner) || (tab == T_TX && !bank && !admin) || (tab == T_INV && !invoiceOk && !admin)) { tab = T_INFOS; page = 0; invoicing = false; }
 
         int x = left + 14, w = W - 28;
         List<String> names = new ArrayList<>();
@@ -247,7 +275,7 @@ public class EntrepriseScreen extends Screen {
         if (owner) { names.add("GRADES"); ids.add(T_GRADES); }
         // Mode OP : onglets en lecture seule (annulation de facture possible) ; le clic cible cette entreprise (VIEW_TX).
         if (bank || admin) { names.add("TRANSACTIONS"); ids.add(T_TX); }
-        if (bank || admin) { names.add("FACTURES"); ids.add(T_INV); }
+        if (invoiceOk || admin) { names.add("FACTURES"); ids.add(T_INV); }
         // Jusqu'à 4 onglets : largeur fixe 90 (pas de 94). Au-delà : largeur = texte + marge commune, le tout tient dans w.
         int n = names.size(), gap = 4, textSum = 0;
         for (String s : names) textSum += font.width(s);
@@ -446,7 +474,7 @@ public class EntrepriseScreen extends Screen {
         long payroll = 0;
         for (MemberView m : c.members()) if (!c.grades().isEmpty()) payroll += c.grades().get(Math.max(0, Math.min(c.grades().size() - 1, m.grade()))).salary();
         String status = c.status() == 0 ? "En attente de validation" : c.dissolveRequested() ? "Active • dissolution demandée" : "Active";
-        boolean canToggle = !admin && c.status() == 1 && (owner || (mine != null && mine.manage()));
+        boolean canToggle = !admin && c.status() == 1 && (owner || (mine != null && mine.has(EntrepriseData.P_OPEN)));
         String openState = c.open() ? "Ouverte" : "Fermée";
 
         if (admin) {
@@ -554,43 +582,55 @@ public class EntrepriseScreen extends Screen {
         btn(right - 20, y - 1, 20, 20, ">", MineNorthStyle.DARK, () -> go(() -> page++)).enabled(page < pages - 1);
     }
 
+    /** Libellé court des droits d'un grade, pour la liste. */
+    private static String permsSummary(int perms) {
+        int n = Integer.bitCount(perms & EntrepriseData.P_ALL);
+        return n == 0 ? "aucun droit" : n == EntrepriseData.P_ALL_COUNT ? "tous les droits" : n + " droit" + (n > 1 ? "s" : "");
+    }
+
     private void buildGrades(CompanyView c, int x, int y0, int w) {
         List<GradeView> grades = c.grades();
-        for (int i = 0; i < grades.size() && i < 6; i++) {
-            GradeView g = grades.get(i);
-            int y = y0 + i * 18;
-            final int idx = i;
-            card(x, y, w, 16, selGrade == i ? MineNorthStyle.CYAN : MineNorthStyle.DARK);
-            label((i + 1) + ". " + g.name(), x + 8, y + 4, MineNorthStyle.WHITE, 130);
-            label(MineNorthStyle.euros(g.salary()) + " / paie", x + 146, y + 4, MineNorthStyle.TEXT, 90);
-            if (g.manage()) label("gestion", x + 244, y + 4, MineNorthStyle.OK);
-            btn(x + w - 68, y + 1, 66, 14, "MODIFIER", MineNorthStyle.DARK, () -> go(() -> {
-                selGrade = idx; gradeManage = g.manage(); kGradeName = g.name();
-                kSalary = MineNorthStyle.euros(g.salary()).replace(" €", "");
-            }));
-        }
         int yb = top + H - 50;
         if (selGrade == -1) {
-            label("« gestion » : ce grade peut embaucher et licencier.", x, yb - 12, MineNorthStyle.MUTED);
+            for (int i = 0; i < grades.size() && i < 6; i++) {
+                GradeView g = grades.get(i);
+                int y = y0 + i * 18;
+                final int idx = i;
+                card(x, y, w, 16, MineNorthStyle.DARK);
+                label((i + 1) + ". " + g.name(), x + 8, y + 4, MineNorthStyle.WHITE, 120);
+                label(MineNorthStyle.euros(g.salary()) + " / paie", x + 134, y + 4, MineNorthStyle.TEXT, 84);
+                label(permsSummary(g.perms()), x + 224, y + 4, g.manage() ? MineNorthStyle.OK : MineNorthStyle.MUTED, 80);
+                btn(x + w - 68, y + 1, 66, 14, "MODIFIER", MineNorthStyle.DARK, () -> go(() -> {
+                    selGrade = idx; gradePerms = g.perms(); kGradeName = g.name();
+                    kSalary = MineNorthStyle.euros(g.salary()).replace(" €", "");
+                }));
+            }
+            label("Vous choisissez les droits de chaque grade (MODIFIER).", x, yb - 12, MineNorthStyle.MUTED);
             btn(x, yb - 1, w, 20, "NOUVEAU GRADE", MineNorthStyle.DARK,
-                    () -> go(() -> { selGrade = -2; gradeManage = false; kGradeName = ""; kSalary = ""; }))
+                    () -> go(() -> { selGrade = -2; gradePerms = 0; kGradeName = ""; kSalary = ""; }))
                     .enabled(grades.size() < st.maxGrades());
             return;
         }
         boolean isNew = selGrade < 0 || selGrade >= grades.size();
-        label(isNew ? "NOUVEAU GRADE" : "MODIFIER LE GRADE", x, yb - 12, MineNorthStyle.BLUE);
-        bGradeName = box(x, yb, 112, "Nom du grade", kGradeName);
-        bSalary = box(x + 118, yb, 64, "Salaire €", kSalary);
-        btn(x + 188, yb - 1, 80, 20, gradeManage ? "GESTION : OUI" : "GESTION : NON", gradeManage ? MineNorthStyle.CYAN : MineNorthStyle.DARK,
-                () -> go(() -> gradeManage = !gradeManage));
-        btn(x + 272, yb - 1, 38, 20, "OK", MineNorthStyle.GREEN,
-                () -> send(ModNetwork.GRADE_SAVE, c.id(), bGradeName.getValue(), bSalary.getValue(), gradeManage ? "1" : "0", isNew ? -1 : selGrade));
+        label(isNew ? "NOUVEAU GRADE" : "MODIFIER LE GRADE", x, y0, MineNorthStyle.BLUE);
+        bGradeName = box(x, y0 + 11, 190, "Nom du grade", kGradeName);
+        bSalary = box(x + 196, y0 + 11, 90, "Salaire € / paie", kSalary);
+        label("DROITS DE CE GRADE (clic pour accorder ou retirer)", x, y0 + 36, MineNorthStyle.BLUE);
+        int cw = (w - 8) / 2;
+        for (int i = 0; i < EntrepriseData.P_LABELS.length; i++) {
+            final int bit = 1 << i;
+            boolean on = (gradePerms & bit) != 0;
+            btn(x + (i % 2) * (cw + 8), y0 + 48 + (i / 2) * 20, cw, 17, (on ? "OUI • " : "NON • ") + EntrepriseData.P_LABELS[i],
+                    on ? MineNorthStyle.GREEN : MineNorthStyle.DARK, () -> go(() -> gradePerms ^= bit));
+        }
+        label("Le patron a toujours tous les droits.", x, y0 + 110, MineNorthStyle.MUTED);
+        btn(x, yb - 1, 150, 20, "ENREGISTRER", MineNorthStyle.GREEN,
+                () -> send(ModNetwork.GRADE_SAVE, c.id(), bGradeName.getValue(), bSalary.getValue(), String.valueOf(gradePerms), isNew ? -1 : selGrade));
         if (!isNew) {
             final int del = selGrade;
-            btn(x + 314, yb - 1, 58, 20, "SUPPR.", MineNorthStyle.PINK, () -> send(ModNetwork.GRADE_DELETE, c.id(), "", "", "", del));
-        } else {
-            btn(x + 314, yb - 1, 58, 20, "ANNULER", MineNorthStyle.PINK, () -> go(() -> selGrade = -1));
+            btn(x + 156, yb - 1, 100, 20, "SUPPRIMER", MineNorthStyle.PINK, () -> send(ModNetwork.GRADE_DELETE, c.id(), "", "", "", del));
         }
+        btn(x + w - 100, yb - 1, 100, 20, "ANNULER", MineNorthStyle.DARK, () -> go(() -> selGrade = -1));
     }
 
     // ------------------------------------------------------------------ mode OP
@@ -637,6 +677,7 @@ public class EntrepriseScreen extends Screen {
 
     // ------------------------------------------------------------------ rendu
     private String heading() {
+        if (!st.admin() && viewNone) return "INVITATIONS ET CRÉATION";
         CompanyView c = st.admin() ? company(sel) : company(st.selfId());
         if (st.admin() && creating) return "NOUVELLE ENTREPRISE";
         if (c != null) return (c.name().length() > 20 ? c.name().substring(0, 19) + "…" : c.name()).toUpperCase(java.util.Locale.ROOT);
@@ -646,7 +687,7 @@ public class EntrepriseScreen extends Screen {
     @Override
     public void render(GuiGraphics g, int mx, int my, float pt) {
         renderBackground(g);
-        MineNorthStyle.panel(g, left, top, W, H, heading(), st.admin() ? "OP • ADMINISTRATION" : "MINENORTH RP • REGISTRE DU COMMERCE");
+        MineNorthStyle.panel(g, left, top, W, H, heading(), st.admin() ? "OP • ADMINISTRATION" : st.mine().size() > 1 || (!st.mine().isEmpty() && (st.canJoinMore() || !st.invites().isEmpty())) ? "MINENORTH RP" : "MINENORTH RP • REGISTRE DU COMMERCE");
         for (Card c : cards) MineNorthStyle.card(g, c.x(), c.y(), c.w(), c.h(), false, c.accent());
         for (Label l : labels) g.drawString(font, l.text(), l.x(), l.y(), l.color(), false);
         if (!message.isEmpty()) {
