@@ -36,6 +36,10 @@ public class EntrepriseScreen extends Screen {
 
     private ModNetwork.StatePacket st;
     private int left, top;
+    /** Panneau admin d'où l'écran a été ouvert (null sinon) : « Retour » et Échap y reviennent. */
+    private Screen parent;
+
+    void setParent(Screen s) { this.parent = s; }
     private int tab, page;
     /** Mode OP : entreprise sélectionnée (-1 = liste). */
     private int sel = -1;
@@ -160,7 +164,7 @@ public class EntrepriseScreen extends Screen {
         bName = bActivity = bOwner = bPlayer = bGradeName = bSalary = bAmount = bRecipient = bMotif = bInvAmount = bInvDesc = null;
 
         boolean sub = st.admin() && (sel >= 0 || creating);
-        btn(left + W - 100, top + 10, 86, 16, sub ? "Retour" : "Fermer", MineNorthButton.GHOST, this::back);
+        btn(left + W - 100, top + 10, 86, 16, sub || parent != null ? "Retour" : "Fermer", MineNorthButton.GHOST, this::back);
 
         if (st.admin()) {
             if (creating) buildAdminCreate();
@@ -177,8 +181,16 @@ public class EntrepriseScreen extends Screen {
     private void back() {
         if (st.admin() && (sel >= 0 || creating)) {
             go(() -> { sel = -1; creating = false; tab = 0; page = 0; selGrade = -1; confirm = false; invoicing = false; });
-        } else onClose();
+        } else if (parent != null) {
+            Screen p = parent;
+            parent = null;
+            Minecraft.getInstance().setScreen(p);   // removed() prévient le serveur : la session du guichet est fermée
+        } else super.onClose();
     }
+
+    /** Échap : un cran en arrière (société -> liste -> panneau admin), fermeture seulement sans panneau d'origine. */
+    @Override
+    public void onClose() { back(); }
 
     /** Joueur sans entreprise : invitation éventuelle + formulaire de création. */
     private void buildNone() {

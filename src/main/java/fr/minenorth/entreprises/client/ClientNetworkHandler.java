@@ -19,7 +19,12 @@ public final class ClientNetworkHandler {
         Minecraft mc = Minecraft.getInstance();
         if (mc.screen instanceof InvoiceScreen) return;   // la facture affichée doit rester répondable
         if (mc.screen instanceof EntrepriseScreen s && s.isAdmin() == p.admin()) s.update(p);
-        else mc.setScreen(new EntrepriseScreen(p));
+        else {
+            EntrepriseScreen n = new EntrepriseScreen(p);
+            // Ouvert depuis le panneau MineNorth Admin : « Retour » et Échap y reviennent (lien souple, par nom de classe).
+            if (p.admin() && mc.screen != null && mc.screen.getClass().getName().equals("com.minenorth_admin.client.AdminScreen")) n.setParent(mc.screen);
+            mc.setScreen(n);
+        }
     }
 
     /** Une facture attend la signature du joueur : ouvre l'écran de facture (ou la met en file si une autre est affichée). */
