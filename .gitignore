@@ -29,3 +29,6 @@ crash-reports/
 *.log
 .DS_Store
 Thumbs.db
+
+# MRPhone 2 (copie locale pour compiler les applications du téléphone, non redistribuée)
+libs/mrphone-*.jar

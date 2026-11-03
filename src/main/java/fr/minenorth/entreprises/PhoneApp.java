@@ -1,7 +1,6 @@
 package fr.minenorth.entreprises;
 
 import fr.minenorth.entreprises.network.PhoneNet;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -25,29 +24,18 @@ public final class PhoneApp {
     /** Dernière ouverture demandée (tick du serveur) : évite le martelage du paquet. */
     private static final Map<UUID, Integer> LAST_OPEN = new HashMap<>();
 
-    static boolean has(ServerPlayer p) {
-        try {
-            return memberOfActive(p);
-        } catch (RuntimeException e) {
-            return false;
-        }
-    }
+    /**
+     * Depuis le 02/11, l'application est visible pour tous : sans entreprise, elle montre les invitations et la création d'entreprise
+     * (même écran que /entreprise) ; les droits de chaque action restent vérifiés par EntrepriseService.
+     */
+    static boolean has(ServerPlayer p) { return true; }
 
-    private static boolean memberOfActive(ServerPlayer p) {
-        fr.minenorth.entreprises.data.EntrepriseData.Company c = fr.minenorth.entreprises.data.EntrepriseData.get(p.server).companyOf(p.getUUID());
-        return c != null && c.status == fr.minenorth.entreprises.data.EntrepriseData.ACTIVE;
-    }
-
-    /** Appelé par le paquet « ouvrir » : revérifie le métier puis ouvre l'écran exactement comme la tablette. */
+    /** Appelé par le paquet « ouvrir » : ouvre l'écran comme /entreprise (chaque action est revérifiée par EntrepriseService). */
     public static void open(ServerPlayer p) {
         int now = p.server.getTickCount();
         Integer last = LAST_OPEN.get(p.getUUID());
         if (last != null && now - last < 10) return;
         LAST_OPEN.put(p.getUUID(), now);
-        if (!has(p)) {
-            p.displayClientMessage(Component.literal("§cL'application Entreprise est réservée aux membres d'une entreprise active."), true);
-            return;
-        }
         EntrepriseService.openFor(p);
     }
 

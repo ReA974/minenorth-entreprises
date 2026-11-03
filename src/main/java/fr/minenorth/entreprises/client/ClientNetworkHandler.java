@@ -19,6 +19,7 @@ public final class ClientNetworkHandler {
         Minecraft mc = Minecraft.getInstance();
         if (mc.screen instanceof InvoiceScreen) return;   // la facture affichée doit rester répondable
         if (mc.screen instanceof EntrepriseScreen s && s.isAdmin() == p.admin()) s.update(p);
+        else if (!p.admin() && PhoneAppClient.phone() && fr.minenorth.entreprises.client.phone.PhoneEntreprise.handle(p)) return;
         else {
             EntrepriseScreen n = new EntrepriseScreen(p);
             // Ouvert depuis le panneau MineNorth Admin : « Retour » et Échap y reviennent (lien souple, par nom de classe).

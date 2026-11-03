@@ -139,3 +139,9 @@ aucun paiement.
 - Le véhicule est recréé à l'identique (pièces, carburant, dégâts, propriétaire, assurance) avec la nouvelle peinture ; si cela échoue, rien n'est modifié.
 - Réseau : protocole 7, serveur et clients ensemble. L'accès à MTS se fait par réflexion (Immersive Vehicles 24.0.0).
 - Le **banc de puissance** (diagnostic moteur et reprogrammation) est dans un mod séparé : `minenorth-banc`.
+
+## Application « Entreprise » dans le téléphone MRPhone (02/11)
+- L'icône **Entreprise** du téléphone patché est maintenant **visible pour tous** (`PhoneApp.has` = vrai) et ouvre l'application **dans l'écran du téléphone** (`client/phone/PhoneEntrepriseScreen`, sous-classe de `AbstractZPhoneScreen` via `PhoneAppBase`, compilée contre `libs/mrphone-0.9.4.jar` en `compileOnly`). Sans entreprise : invitations (accepter / refuser) et création. Demande en attente : annulation. Sinon onglets Infos (ouvrir / fermer, tablette, dissolution ou démission), Employés (grades, licencier, embaucher), Grades (patron : nom, salaire, droits), Compte (droit « compte » : solde, carte, dépôt, virements, historique), Factures (droit « factures » : création au joueur proche, annulation), et bouton pour passer d'une entreprise à l'autre.
+- Mêmes paquets que l'écran habituel (`StatePacket` / `ActionPacket`, mode joueur) : chaque action reste vérifiée par `EntrepriseService`. Ouverture : `PhoneAppClient.openFromPhone` → `phone.PhoneEntreprise.request()` (téléphone gardé ouvert). La tablette et `/entreprise` gardent leur grand écran. Sans MRPhone : comportement d'avant.
+- **Non testé en jeu.**
+- **Plus de tablette donnée automatiquement (02/11)** : ni à la création, ni à la validation, ni à la création par un admin ; un message renvoie vers l'application Entreprise du téléphone. Le PDG peut toujours demander sa tablette (« Obtenir la tablette »).

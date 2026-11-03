@@ -99,6 +99,12 @@ public final class EntrepriseService {
         return p.getInventory().contains(new ItemStack(ModItems.TABLET.get()));
     }
 
+    /**
+     * Plus de tablette donnée automatiquement à la création / validation (02/11) : tout passe par l'application Entreprise du téléphone.
+     * La tablette reste disponible à la demande du PDG (bouton « Obtenir la tablette »).
+     */
+    private static final String PHONE_HINT = "§7Gérez votre entreprise depuis l'application §6Entreprise§7 de votre téléphone.";
+
     private static void giveTablet(MinecraftServer s, UUID owner) {
         ServerPlayer p = s.getPlayerList().getPlayer(owner);
         if (p == null || hasTablet(p)) return;
@@ -538,7 +544,7 @@ public final class EntrepriseService {
                 c.status = EntrepriseData.ACTIVE; d.setDirty();
                 CompanyAccounts.syncListing(s, c);
                 tell(s, c.owner, "§aVotre entreprise « " + c.name + " » a été validée !");
-                giveTablet(s, c.owner);
+                tell(s, c.owner, PHONE_HINT);
                 return R.ok("Entreprise validée.");
             }
             case ModNetwork.REFUSE: {
@@ -612,7 +618,7 @@ public final class EntrepriseService {
             }
             return R.ok("Demande envoyée : un administrateur doit la valider.");
         }
-        giveTablet(p.server, p.getUUID());
+        tell(p.server, p.getUUID(), PHONE_HINT);
         return R.ok("Entreprise « " + c.name + " » créée.");
     }
 
@@ -631,7 +637,7 @@ public final class EntrepriseService {
         CompanyAccounts.syncSigners(s, c);
         CompanyAccounts.syncListing(s, c);
         tell(s, boss.getId(), "§aUn administrateur a créé votre entreprise « " + c.name + " ».");
-        giveTablet(s, boss.getId());
+        tell(s, boss.getId(), PHONE_HINT);
         return R.ok("Entreprise « " + c.name + " » créée.");
     }
 

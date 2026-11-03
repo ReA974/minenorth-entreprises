@@ -22,10 +22,17 @@ public final class PhoneAppClient {
 
     public static void set(boolean v) { visible = v; }
 
-    /** Clic sur l'icône : ferme le téléphone et demande l'ouverture au serveur (qui revérifie le métier). */
+    /** Téléphone MikasRevs Phone 2 présent : à tester AVANT de toucher phone.PhoneEntreprise. */
+    public static boolean phone() { return net.minecraftforge.fml.ModList.get().isLoaded("newphone"); }
+
+    /**
+     * Clic sur l'icône : demande l'ouverture au serveur ; la réponse ouvre l'application DANS le téléphone (phone.PhoneEntrepriseScreen).
+     * Sans le téléphone : ancien comportement (écran de la tablette).
+     */
     public static void openFromPhone() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;
+        if (phone()) { fr.minenorth.entreprises.client.phone.PhoneEntreprise.request(); return; }
         mc.setScreen(null);
         ModNetwork.CHANNEL.sendToServer(new PhoneNet.Open());
     }
